@@ -3,210 +3,58 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>貨運帳務系統</title>
-    <!-- Tailwind CSS -->
+    <title>物流派車與報價系統入口</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Vue 3 -->
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
     <style>
-        [v-cloak] { display: none; }
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background: linear-gradient(135deg, #f6d365 0%, #fda085 100%);
+            min-height: 100vh;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+        }
     </style>
 </head>
-<body class="bg-gray-100 p-8 font-sans antialiased text-gray-800">
+<body class="flex items-center justify-center p-4">
 
-<div id="app" v-cloak class="max-w-6xl mx-auto bg-white p-8 rounded-xl shadow-lg border border-gray-200">
-    <div class="flex justify-between items-center mb-8 border-b pb-4 border-gray-200">
-        <div>
-            <h1 class="text-3xl font-bold text-gray-800 tracking-tight">每日貨運帳務系統</h1>
-            <p class="text-sm text-gray-500 mt-1">動態單價與即時對帳面板</p>
-        </div>
-        <div class="flex items-center gap-4">
-            <input type="date" v-model="currentDate" @change="fetchData" class="border rounded px-4 py-2 text-gray-700 shadow-sm focus:ring focus:ring-indigo-200 focus:outline-none">
-            <button @click="saveData" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded shadow transition duration-150 ease-in-out" :disabled="saving">
-                <span v-if="saving">儲存中...</span>
-                <span v-else>儲存當日對帳</span>
-            </button>
-        </div>
-    </div>
-
-    <div v-if="loading" class="text-center py-10 text-gray-500">
-        載入資料中...
-    </div>
-
-    <div v-else>
-        <!-- Data Table -->
-        <div class="overflow-x-auto shadow rounded-lg border border-gray-200 mb-8">
-            <table class="w-full text-left border-collapse">
-                <thead>
-                    <tr class="bg-gray-50 text-gray-700 uppercase text-xs tracking-wider border-b">
-                        <th class="p-4 font-semibold">客戶名稱</th>
-                        <th class="p-4 font-semibold">目的地</th>
-                        <th class="p-4 font-semibold text-right">合約單價</th>
-                        <th class="p-4 font-semibold text-center w-32">今日趟數</th>
-                        <th class="p-4 font-semibold text-right">小計</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200">
-                    <tr v-for="(item, index) in tableData" :key="item.price.id" class="hover:bg-gray-50 transition">
-                        <td class="p-4 text-gray-800 font-medium">@{{ item.price.client_name }}</td>
-                        <td class="p-4 text-gray-600">@{{ item.price.destination }}</td>
-                        <td class="p-4 text-right text-gray-600">@{{ formatCurrency(item.price.price) }}</td>
-                        <td class="p-4 text-center">
-                            <input type="number" min="0" v-model.number="item.trips_count" class="w-20 text-center border rounded px-2 py-1 shadow-sm focus:ring focus:ring-indigo-200 focus:outline-none">
-                        </td>
-                        <td class="p-4 text-right font-semibold text-indigo-600">
-                            @{{ formatCurrency(item.price.price * item.trips_count) }}
-                        </td>
-                    </tr>
-                    <tr v-if="tableData.length === 0">
-                        <td colspan="5" class="p-8 text-center text-gray-500">目前沒有設定任何單價與路線。</td>
-                    </tr>
-                </tbody>
-            </table>
+    <div class="glass-card w-full max-w-4xl p-10 rounded-3xl text-center">
+        <div class="mb-8">
+            <h1 class="text-5xl font-black text-gray-800 tracking-tight mb-4">物流與報價管理系統</h1>
+            <p class="text-xl text-gray-600 font-medium">歡迎使用，請選擇您要進入的系統模組</p>
         </div>
 
-        <!-- Summary Panel -->
-        <div class="bg-gray-50 p-6 rounded-lg border border-gray-200 shadow-sm flex flex-wrap justify-around items-center gap-6">
-            <div class="text-center">
-                <div class="text-gray-500 text-sm font-medium mb-1">今日總趟數</div>
-                <div class="text-3xl font-bold text-gray-800">@{{ totalTrips }}</div>
-            </div>
-            <div class="text-center">
-                <div class="text-gray-500 text-sm font-medium mb-1">今日總金額</div>
-                <div class="text-3xl font-bold text-indigo-600">@{{ formatCurrency(totalAmount) }}</div>
-            </div>
-        </div>
-
-        <!-- Client Summaries -->
-        <div class="mt-8" v-if="Object.keys(clientSummaries).length > 0">
-            <h2 class="text-xl font-bold text-gray-800 mb-4">各客戶帳務小計</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div v-for="(amount, client) in clientSummaries" :key="client" class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center">
-                    <span class="font-medium text-gray-700">@{{ client }}</span>
-                    <span class="font-bold text-indigo-600">@{{ formatCurrency(amount) }}</span>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-12">
+            <!-- 206 報價系統 -->
+            <a href="/client/206" class="group block p-8 bg-white rounded-2xl shadow-sm hover:shadow-xl hover:-translate-y-2 transition-all duration-300 border border-gray-100 relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 to-indigo-500 transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-300"></div>
+                <div class="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                 </div>
-            </div>
+                <h2 class="text-2xl font-bold text-gray-800 mb-2 group-hover:text-blue-600 transition-colors">欣華運費明細 (206)</h2>
+                <p class="text-gray-500 text-sm">提供大量 Excel 複製貼上、自動計價、防斷行與快速匯出功能。</p>
+            </a>
+
+            <!-- 225 報價系統 -->
+            <a href="/client/225" class="group block p-8 bg-white rounded-2xl shadow-sm hover:shadow-xl hover:-translate-y-2 transition-all duration-300 border border-gray-100 relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-400 to-red-500 transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-300"></div>
+                <div class="w-16 h-16 bg-orange-50 text-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                </div>
+                <h2 class="text-2xl font-bold text-gray-800 mb-2 group-hover:text-orange-600 transition-colors">鴻天運費明細 (225)</h2>
+                <p class="text-gray-500 text-sm">專屬無地點欄位格式、手動輸入與 Excel 大量貼上完美整合。</p>
+            </a>
+        </div>
+
+        <div class="mt-16 text-gray-400 text-sm font-medium">
+            &copy; 2026 物流與報價管理系統 | Powered by Antigravity AI
         </div>
     </div>
-</div>
-
-<script>
-    const { createApp, ref, computed, onMounted } = Vue;
-
-    createApp({
-        setup() {
-            const loading = ref(true);
-            const saving = ref(false);
-            const currentDate = ref(new Date().toISOString().split('T')[0]);
-            
-            // [{ price: {id, client_name, destination, price}, trips_count: 0 }]
-            const tableData = ref([]);
-
-            const fetchData = async () => {
-                loading.value = true;
-                try {
-                    const response = await fetch(`/api/trips?date=${currentDate.value}`);
-                    const data = await response.json();
-                    
-                    // Merge prices and trips
-                    tableData.value = data.prices.map(price => {
-                        const trip = data.trips.find(t => t.price_id === price.id);
-                        return {
-                            price: price,
-                            trips_count: trip ? trip.trips_count : 0
-                        };
-                    });
-                } catch (error) {
-                    console.error("Error fetching data:", error);
-                    alert("載入資料失敗！");
-                } finally {
-                    loading.value = false;
-                }
-            };
-
-            const saveData = async () => {
-                saving.value = true;
-                try {
-                    const payload = {
-                        date: currentDate.value,
-                        trips: tableData.value.map(item => ({
-                            price_id: item.price.id,
-                            trips_count: item.trips_count
-                        }))
-                    };
-
-                    const response = await fetch('/api/trips', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        },
-                        body: JSON.stringify(payload)
-                    });
-
-                    if (response.ok) {
-                        alert("儲存成功！");
-                    } else {
-                        throw new Error("API Error");
-                    }
-                } catch (error) {
-                    console.error("Error saving data:", error);
-                    alert("儲存失敗！");
-                } finally {
-                    saving.value = false;
-                }
-            };
-
-            const totalTrips = computed(() => {
-                return tableData.value.reduce((sum, item) => sum + (item.trips_count || 0), 0);
-            });
-
-            const totalAmount = computed(() => {
-                return tableData.value.reduce((sum, item) => sum + ((item.trips_count || 0) * item.price.price), 0);
-            });
-
-            const clientSummaries = computed(() => {
-                const summaries = {};
-                tableData.value.forEach(item => {
-                    if (!summaries[item.price.client_name]) {
-                        summaries[item.price.client_name] = 0;
-                    }
-                    summaries[item.price.client_name] += (item.trips_count || 0) * item.price.price;
-                });
-                // Only show clients that have > 0 amount or you can show all. Let's show all for clarity, 
-                // but filter out those with 0 to keep it clean.
-                const filtered = {};
-                for (const client in summaries) {
-                    if (summaries[client] > 0) {
-                        filtered[client] = summaries[client];
-                    }
-                }
-                return filtered;
-            });
-
-            const formatCurrency = (value) => {
-                return new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', minimumFractionDigits: 0 }).format(value);
-            };
-
-            onMounted(() => {
-                fetchData();
-            });
-
-            return {
-                loading,
-                saving,
-                currentDate,
-                tableData,
-                fetchData,
-                saveData,
-                totalTrips,
-                totalAmount,
-                clientSummaries,
-                formatCurrency
-            };
-        }
-    }).mount('#app');
-</script>
 
 </body>
 </html>

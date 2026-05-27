@@ -1,22 +1,26 @@
 const fs = require('fs');
-
-const dir = 'resources/views';
-const files = fs.readdirSync(dir).filter(f => f.startsWith('client_') && f.endsWith('.blade.php'));
-
-for (let file of files) {
-    let content = fs.readFileSync(`${dir}/${file}`, 'utf-8');
+const files = ['resources/views/client_206.blade.php', 'resources/views/client_225.blade.php'];
+files.forEach(file => {
+    let content = fs.readFileSync(file, 'utf-8');
     
-    // Check if getCellStyle is defined
-    if (!content.includes('const getCellStyle = (row, colIndex) => {')) {
-        // Inject right after const tableData = ref([]);
-        content = content.replace('const tableData = ref([]);', `const tableData = ref([]);
-            
-            const getCellStyle = (row, colIndex) => {
+    const badBlockRegex = /const getCellStyle = \(row, colIndex\) => \{\s*const s = \{ \.\.\.row\.styles\[colIndex\] \};\s*delete s\.border;\s*delete s\.borderTop;\s*delete s\.borderBottom;\s*delete s\.borderLeft;\s*delete s\.borderRight;\s*return s;\s*\};/;
+    
+    const fixedBlock = `const getCellStyle = (row, colIndex) => {
                 if (!row || !row.styles || !row.styles[colIndex]) return {};
-                return row.styles[colIndex];
-            };`);
+                const s = { ...row.styles[colIndex] };
+                delete s.border;
+                delete s.borderTop;
+                delete s.borderBottom;
+                delete s.borderLeft;
+                delete s.borderRight;
+                return s;
+            };`;
             
-        fs.writeFileSync(`${dir}/${file}`, content, 'utf-8');
-        console.log(`Fixed getCellStyle in ${file}`);
+    if (badBlockRegex.test(content)) {
+        content = content.replace(badBlockRegex, fixedBlock);
+        fs.writeFileSync(file, content, 'utf-8');
+        console.log('Fixed ' + file);
+    } else {
+        console.log('Could not find bad block in ' + file);
     }
-}
+});

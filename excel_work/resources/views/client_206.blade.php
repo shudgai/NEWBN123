@@ -258,6 +258,7 @@
             const tableData = ref([]);
             
             const getCellStyle = (row, colIndex) => {
+                if (!row || !row.styles || !row.styles[colIndex]) return {};
                 const s = { ...row.styles[colIndex] };
                 delete s.border;
                 delete s.borderTop;

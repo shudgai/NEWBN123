@@ -260,11 +260,6 @@
             const getCellStyle = (row, colIndex) => {
                 if (!row || !row.styles || !row.styles[colIndex]) return {};
                 const s = { ...row.styles[colIndex] };
-                delete s.border;
-                delete s.borderTop;
-                delete s.borderBottom;
-                delete s.borderLeft;
-                delete s.borderRight;
                 return s;
             };
             
@@ -274,11 +269,11 @@
             const resetView = async () => {
                 sortState.value = { column: null, order: 'asc' };
                 selectedRows.value = [];
-                    await fetchData();
-                    
-                    toastMessage.value = `已刪除 ${undoData.deletedRows.length} 筆資料`;
-                    showToast.value = true;
-                    setTimeout(() => { showToast.value = false; }, 8000);
+                await fetchData();
+                
+                toastMessage.value = `介面已恢復`;
+                showToast.value = true;
+                setTimeout(() => { showToast.value = false; }, 3000);
             };
 
             const sortBy = (column) => {
@@ -722,7 +717,8 @@
                 pieces: null,
                 weight: null,
                 location: '',
-                remark: ''
+                remark: '',
+                client_code: '206'
             });
 
             const calculateFreight = (weight, remark, client) => {
@@ -982,7 +978,8 @@
                         weight: newRow.value.weight || 0,
                         location: newRow.value.location || '',
                         remark: newRow.value.remark || '',
-                        is_client_data: false
+                        is_client_data: false,
+                        client_code: '206'
                     };
 
                     const response = await fetch('/api/waybills', {
@@ -1172,10 +1169,32 @@
                             // Ensure the array has enough elements
                             while(targetRow.styles.length < fields.length) targetRow.styles.push({});
                             
-                            // Align pasted styles with the columns
-                            for (let i = 0; i < rowStyles.length; i++) {
-                                if (startColIndex + i < fields.length) {
-                                    targetRow.styles[startColIndex + i] = rowStyles[i];
+                            if (rowVals.length >= 9 && startColIndex === 0) {
+                                if (rowStyles.length >= 9) {
+                                    targetRow.styles[0] = rowStyles[0] || {};
+                                    targetRow.styles[1] = rowStyles[1] || {};
+                                    targetRow.styles[2] = rowStyles[2] || {};
+                                    targetRow.styles[3] = rowStyles[4] || {};
+                                    targetRow.styles[4] = rowStyles[6] || {};
+                                    targetRow.styles[5] = rowStyles[7] || {};
+                                    targetRow.styles[6] = rowStyles[8] || {};
+                                    targetRow.styles[7] = rowStyles[8] || {};
+                                } else {
+                                    targetRow.styles[0] = rowStyles[0] || {};
+                                    targetRow.styles[1] = rowStyles[1] || {};
+                                    targetRow.styles[2] = rowStyles[2] || {};
+                                    targetRow.styles[3] = rowStyles[3] || {};
+                                    targetRow.styles[4] = rowStyles[4] || {};
+                                    targetRow.styles[5] = rowStyles[5] || {};
+                                    targetRow.styles[6] = rowStyles[6] || {};
+                                    targetRow.styles[7] = rowStyles[6] || {};
+                                }
+                            } else {
+                                // Align pasted styles with the columns
+                                for (let i = 0; i < rowStyles.length; i++) {
+                                    if (startColIndex + i < fields.length) {
+                                        targetRow.styles[startColIndex + i] = rowStyles[i];
+                                    }
                                 }
                             }
                             
@@ -1183,16 +1202,40 @@
                             targetRow.styles = [...targetRow.styles];
                         }
 
-                        for (let c = 0; c < rowVals.length; c++) {
-                            const colField = fields[startColIndex + c];
-                            if (colField) {
-                                let val = rowVals[c].trim();
-                                if (['amount', 'pieces', 'weight'].includes(colField)) {
-                                    val = val === '' ? null : (parseFloat(val) || 0);
+                        if (rowVals.length >= 9 && startColIndex === 0) {
+                            targetRow.date = rowVals[0].trim();
+                            targetRow.bill_no = rowVals[1].trim();
+                            targetRow.client_name = rowVals[2].trim();
+                            targetRow.amount = rowVals[4].trim() === '' ? null : (parseFloat(rowVals[4]) || 0);
+                            targetRow.pieces = rowVals[6].trim() === '' ? null : (parseFloat(rowVals[6]) || 0);
+                            targetRow.weight = rowVals[7].trim() === '' ? null : (parseFloat(rowVals[7]) || 0);
+                            targetRow.location = '';
+                            targetRow.remark = rowVals[8].trim();
+                        } else {
+                            for (let c = 0; c < rowVals.length; c++) {
+                                const colField = fields[startColIndex + c];
+                                if (colField) {
+                                    let val = rowVals[c].trim();
+                                    if (['amount', 'pieces', 'weight'].includes(colField)) {
+                                        val = val === '' ? null : (parseFloat(val) || 0);
+                                    }
+                                    targetRow[colField] = val;
                                 }
-                                targetRow[colField] = val;
                             }
                         }
+
+                        let rawText = ((targetRow.location || '') + ' ' + (targetRow.remark || '')).trim();
+                        let foundLoc = '';
+                        const knownLocations = ['台北市', '新北市', '三重', '五股', '泰山', '新莊', '蘆洲', '板橋', '樹林', '中和', '永和', '南港', '內湖', '大直', '天母', '景美', '新店', '汐止', '深坑', '木柵', '八里', '土城', '鶯歌', '三峽', '北投', '社子', '大溪', '龍潭', '新豐', '湖口', '七堵', '瑞芳', '新竹', '基隆', '淡水', '蘆竹', '大園', '中壢', '林口', '龜山', '桃園', '新屋', '八德', '觀音', '平鎮', '楊梅', '台中', '北市', '台北'];
+                        for (const loc of knownLocations) {
+                            if (rawText.includes(loc)) {
+                                foundLoc = loc;
+                                rawText = rawText.replace(loc, '').trim();
+                                break;
+                            }
+                        }
+                        targetRow.location = foundLoc;
+                        targetRow.remark = rawText;
 
                         const pastedFields = rowVals.map((_, c) => fields[startColIndex + c]);
                         if (!pastedFields.includes('amount')) {
@@ -1590,18 +1633,36 @@
                                     }
                                 }
                             }
-                            if (!ws[cell_ref].s.border) ws[cell_ref].s.border = {};
-                            ws[cell_ref].s.border = {
-                                top: { style: "thin", color: { auto: 1 } },
-                                bottom: { style: "thin", color: { auto: 1 } },
-                                left: { style: "thin", color: { auto: 1 } },
-                                right: { style: "thin", color: { auto: 1 } }
+                            ws[cell_ref].s.border = {};
+                            
+                            const parseBorder = (bStr) => {
+                                if (!bStr || bStr === 'none') return null;
+                                let s = "thin";
+                                if (bStr.includes("double")) s = "double";
+                                else if (bStr.includes("dashed")) s = "dashed";
+                                else if (bStr.includes("dotted")) s = "dotted";
+                                else if (bStr.includes("medium") || bStr.includes("1.5pt") || bStr.includes("2px") || bStr.includes("2pt")) s = "medium";
+                                else if (bStr.includes("thick") || bStr.includes("2.25pt") || bStr.includes("3px") || bStr.includes("3pt")) s = "thick";
+                                return { style: s, color: { auto: 1 } };
                             };
-                        }
+                            
+                            if (customStyle.border) {
+                                const b = parseBorder(customStyle.border);
+                                if (b) ws[cell_ref].s.border = { top: b, bottom: b, left: b, right: b };
+                            }
+                            if (customStyle.borderTop) { const b = parseBorder(customStyle.borderTop); if (b) ws[cell_ref].s.border.top = b; }
+                            if (customStyle.borderBottom) { const b = parseBorder(customStyle.borderBottom); if (b) ws[cell_ref].s.border.bottom = b; }
+                            if (customStyle.borderLeft) { const b = parseBorder(customStyle.borderLeft); if (b) ws[cell_ref].s.border.left = b; }
+                            if (customStyle.borderRight) { const b = parseBorder(customStyle.borderRight); if (b) ws[cell_ref].s.border.right = b; }
+                            
+                            if (Object.keys(ws[cell_ref].s.border).length === 0) {
+                                delete ws[cell_ref].s.border;
+                            }
                     }
                 }
+            }
                 
-                const wb = XLSX.utils.book_new();
+            const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "運費明細");
                 XLSX.writeFile(wb, "206公成興運費明細.xlsx");
             };
@@ -1637,7 +1698,8 @@
                 isFillHighlighted,
                 showToast,
                 toastMessage,
-                undoAction,
+                resetView,
+                isAmountManual,
                 handleRemarkChange,
                 previewFreight
             };

@@ -1251,7 +1251,19 @@
                         if(!ws[cell_ref]) ws[cell_ref] = {t:'s', v:''};
                         
                         if (!ws[cell_ref].s) ws[cell_ref].s = {};
-                                                ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12 };
+                        ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12 };
+                        
+                        // Header styling
+                        if (R === 0) {
+                            ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "E5E7EB" } };
+                            ws[cell_ref].s.border = {
+                                top: { style: 'thin', color: { auto: 1 } },
+                                bottom: { style: 'medium', color: { auto: 1 } },
+                                left: { style: 'thin', color: { auto: 1 } },
+                                right: { style: 'thin', color: { auto: 1 } }
+                            };
+                            ws[cell_ref].s.font.bold = true;
+                        }
                     }
                 }
                 

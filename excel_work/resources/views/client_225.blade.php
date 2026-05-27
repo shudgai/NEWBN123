@@ -1341,13 +1341,14 @@
                                     }
                                 }
                             }
-                            // Border
+                            if (!ws[cell_ref].s.border) ws[cell_ref].s.border = {};
                             ws[cell_ref].s.border = {
-                                top: { style: thin, color: { auto: 1 } },
-                                bottom: { style: thin, color: { auto: 1 } },
-                                left: { style: thin, color: { auto: 1 } },
-                                right: { style: thin, color: { auto: 1 } }
+                                top: { style: "thin", color: { auto: 1 } },
+                                bottom: { style: "thin", color: { auto: 1 } },
+                                left: { style: "thin", color: { auto: 1 } },
+                                right: { style: "thin", color: { auto: 1 } }
                             };
+                        }
                     }
                 }
                 

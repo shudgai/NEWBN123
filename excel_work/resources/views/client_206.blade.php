@@ -1472,11 +1472,33 @@
                     '地點': row.location,
                     '備註': row.remark
                 }));
-                const ws = XLSX.utils.json_to_sheet(wsData);
-             
-                // json_to_sheet puts headers at row 0. So data starts at row 1.
-                // Wait, if it's json_to_sheet, we can just say dataStartRow = 1
-             
+                                let minDate = '';
+                let maxDate = '';
+                let clientName = '';
+                if (tableData.value.length > 0) {
+                    const dates = tableData.value.map(r => r.date).filter(d => !!d).sort();
+                    if (dates.length > 0) {
+                        minDate = dates[0];
+                        maxDate = dates[dates.length - 1];
+                    }
+                    clientName = tableData.value[0].client_name || '';
+                }
+                const dateRange = (minDate && maxDate) ? `${minDate}-${maxDate}` : '';
+                const today = new Date();
+                const formattedToday = `${today.getFullYear() - 1911}/${String(today.getMonth()+1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}`;
+                
+                const colHeaders = wsData.length > 0 ? Object.keys(wsData[0]) : [];
+                const aoa = [
+                    ['', '', '', '', '', '', '', ''],
+                    ['運送公司:', '欣華運通有限公司', '叫車公司:', clientName, '', '', '', ''],
+                    ['運送日期:', dateRange, '製表日期 :', formattedToday, '', '', '', ''],
+                    ['', '', '', '', '', '', '', ''],
+                    colHeaders
+                ];
+                wsData.forEach(row => {
+                    aoa.push(Object.values(row));
+                });
+                const ws = XLSX.utils.aoa_to_sheet(aoa);
                 
                 // Add styles
                 const range = XLSX.utils.decode_range(ws['!ref']);
@@ -1484,85 +1506,69 @@
                     for(let C = range.s.c; C <= range.e.c; ++C) {
                         const cell_address = {c:C, r:R};
                         const cell_ref = XLSX.utils.encode_cell(cell_address);
-                        if(!ws[cell_ref]) ws[cell_ref] = {t:'s', v:''};
                         
+                        // FIX: Ensure empty cells are created so they can get background color!
+                        if(!ws[cell_ref]) ws[cell_ref] = {t:'s', v:''};
                         if (!ws[cell_ref].s) ws[cell_ref].s = {};
                         ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12 };
                         
-                        // Header styling
-                        if (R === 0) {
-                            ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "E5E7EB" } };
+                        // Header styling for Row 5 (index 4)
+                        if (R === 4) {
                             ws[cell_ref].s.border = {
-                                top: { style: 'thin', color: { auto: 1 } },
-                                bottom: { style: 'medium', color: { auto: 1 } },
-                                left: { style: 'thin', color: { auto: 1 } },
-                                right: { style: 'thin', color: { auto: 1 } }
+                                top: { style: 'medium', color: { auto: 1 } },
+                                bottom: { style: 'medium', color: { auto: 1 } }
                             };
                             ws[cell_ref].s.font.bold = true;
                         }
                     }
                 }
                 
-                // Find data rows and apply custom styles
-                let dataStartRow = -1;
-                for(let R = range.s.r; R <= range.e.r; ++R) {
-                    let isHeader = false;
+                // Data rows start at index 5
+                const dataStartRow = 5;
+                for (let i = 0; i < tableData.value.length; i++) {
+                    const rowData = tableData.value[i];
+                    const R = dataStartRow + i;
                     for(let C = range.s.c; C <= range.e.c; ++C) {
-                        const cell = ws[XLSX.utils.encode_cell({c:C, r:R})];
-                        if (cell && (cell.v === '重量' || cell.v === '件數' || cell.v === '運費')) {
-                            isHeader = true;
+                        const cell_ref = XLSX.utils.encode_cell({c:C, r:R});
+                        
+                        // Ensure cell exists
+                        if (!ws[cell_ref]) ws[cell_ref] = {t:'s', v:''};
+                        if (!ws[cell_ref].s) ws[cell_ref].s = {};
+                        
+                        const cellStyleIndex = C - range.s.c;
+                        const customStyle = rowData.styles ? rowData.styles[cellStyleIndex] : null;
+                        
+                        // Force yellow background if row is marked as client data
+                        if (rowData.is_client_data) {
+                            ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "FFFF00" } };
                         }
-                    }
-                    if (isHeader) {
-                        dataStartRow = R + 1;
-                        break;
-                    }
-                }
-                
-                if (dataStartRow !== -1) {
-                    for (let i = 0; i < tableData.value.length; i++) {
-                        const rowData = tableData.value[i];
-                        const R = dataStartRow + i;
-                        for(let C = range.s.c; C <= range.e.c; ++C) {
-                            const cell_ref = XLSX.utils.encode_cell({c:C, r:R});
-                            if (!ws[cell_ref]) continue;
-                            if (!ws[cell_ref].s) ws[cell_ref].s = {};
-                            
-                            const cellStyleIndex = C - range.s.c; // Assuming columns map directly
-                            const customStyle = rowData.styles ? rowData.styles[cellStyleIndex] : null;
-                            
-                            if (customStyle) {
-                                // Background
-                                if (customStyle.backgroundColor) {
-                                    // simple hex conversion if needed, but rgb is tricky. 
-                                    // if it's already hex, use it. if rgb, we could try to convert, but let's just use FFFF00 if it has any yellow.
-                                    // SheetJS expects FFFF00 format.
-                                    let bg = customStyle.backgroundColor;
-                                    if (bg.includes('255, 255, 0') || bg.toLowerCase().includes('ffff00') || bg.toLowerCase() === 'yellow' || bg.includes('rgb(255, 255,')) {
-                                        ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "FFFF00" } };
-                                    } else {
-                                        // Try to extract hex
-                                        const hexMatch = bg.match(/#([0-9a-fA-F]{6})/);
-                                        if (hexMatch) {
-                                            ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: hexMatch[1].toUpperCase() } };
-                                        }
+                        
+                        if (customStyle) {
+                            // Background
+                            if (customStyle.backgroundColor && !rowData.is_client_data) {
+                                let bg = customStyle.backgroundColor;
+                                if (bg.includes('255, 255, 0') || bg.toLowerCase().includes('ffff00') || bg.toLowerCase() === 'yellow' || bg.includes('rgb(255, 255,')) {
+                                    ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "FFFF00" } };
+                                } else {
+                                    const hexMatch = bg.match(/#([0-9a-fA-F]{6})/);
+                                    if (hexMatch) {
+                                        ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: hexMatch[1].toUpperCase() } };
                                     }
                                 }
-                                // Border
-                                if (!ws[cell_ref].s.border) ws[cell_ref].s.border = {};
-                                ['top', 'bottom', 'left', 'right'].forEach(dir => {
-                                    const jsProp = 'border' + dir.charAt(0).toUpperCase() + dir.slice(1);
-                                    if (customStyle[jsProp] || customStyle.border) {
-                                        const b = customStyle[jsProp] || customStyle.border;
-                                        // Export borders mapping
-                                        if (b.includes('thick') || b.includes('medium') || b.includes('2px') || b.includes('3px') || b.includes('1.5pt') || b.includes('2pt')) {
-                                            ws[cell_ref].s.border[dir] = { style: "medium", color: { rgb: "000000" } };
-                                        } else if (b.includes('thin') || b.includes('.5pt') || b.includes('1px') || b.includes('solid')) {
-                                            ws[cell_ref].s.border[dir] = { style: "thin", color: { rgb: "000000" } };
-                                        }
-                                    }
-                                });
                             }
+                            // Border
+                            if (!ws[cell_ref].s.border) ws[cell_ref].s.border = {};
+                            ['top', 'bottom', 'left', 'right'].forEach(dir => {
+                                const jsProp = 'border' + dir.charAt(0).toUpperCase() + dir.slice(1);
+                                if (customStyle[jsProp] || customStyle.border) {
+                                    const b = customStyle[jsProp] || customStyle.border;
+                                    if (b.includes('thick') || b.includes('medium') || b.includes('2px') || b.includes('3px') || b.includes('1.5pt') || b.includes('2pt')) {
+                                        ws[cell_ref].s.border[dir] = { style: "medium", color: { rgb: "000000" } };
+                                    } else if (b.includes('thin') || b.includes('.5pt') || b.includes('1px') || b.includes('solid')) {
+                                        ws[cell_ref].s.border[dir] = { style: "thin", color: { rgb: "000000" } };
+                                    }
+                                }
+                            });
                         }
                     }
                 }

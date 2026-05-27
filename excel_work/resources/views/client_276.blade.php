@@ -1295,6 +1295,11 @@
                             const cellStyleIndex = C - range.s.c; // Assuming columns map directly
                             const customStyle = rowData.styles ? rowData.styles[cellStyleIndex] : null;
                             
+                            // Force yellow background if row is marked as client data
+                            if (rowData.is_client_data) {
+                                ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "FFFF00" } };
+                            }
+                            
                             if (customStyle) {
                                 // Background
                                 if (customStyle.backgroundColor) {

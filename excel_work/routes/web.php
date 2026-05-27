@@ -25,6 +25,18 @@ Route::get('/client/225', function () {
     return view('client_225');
 });
 
+Route::get('/client/276', function () {
+    return view('client_276');
+});
+
+Route::get('/client/444', function () {
+    return view('client_444');
+});
+
+Route::get('/client/639', function () {
+    return view('client_639');
+});
+
 Auth::routes();
 
 Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');

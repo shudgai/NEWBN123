@@ -98,8 +98,8 @@
     <div class="mb-6 grid grid-cols-2 gap-4 text-sm" :style="{ fontSize: fontSize + 'px' }">
         <div>
             <div class="flex mb-1">
-                <div class="font-bold w-24">運送公司：</div>
-                <div>欣華運通有限公司</div>
+                <div class="font-bold w-24">客戶名稱：</div>
+                <div>#639大鴻</div>
             </div>
             <div class="flex">
                 <div class="font-bold w-24">運送日期：</div>
@@ -144,7 +144,7 @@
                     <th style="width: 60px;" class="text-right">件數</th>
                     <th style="width: 60px;" class="text-right">重量</th>
                     <th style="width: 100px;" class="text-right">運費</th>
-                    <th style="width: 100px;">地點</th>
+                    <th style="width: 100px;" class="text-right">堆高機</th>
                     <th style="width: 150px;">備註</th>
                     <th style="width: 60px;" class="text-right">總重</th>
                     <th style="width: 40px;" class="text-center">
@@ -161,7 +161,7 @@
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}"><input autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
                     <td class="p-0 text-right relative group" :class="{'fill-highlight': isFillHighlighted(index, 'amount')}"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.amount" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'amount', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}"><input list="location-names" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'forklift_fee')}"><input autocomplete="off" @keydown="handleArrowKeys" @change="recalculateAndSave(row)" type="text" v-model.number="row.forklift_fee" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'forklift_fee', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="handleRemarkChange(row, index)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
                     <td class="p-1 text-right text-blue-600 font-bold bg-gray-50 align-middle">@{{ getGroupTotalWeight(row) }}</td>
                     <td class="p-0 text-center align-middle relative group" :class="{'fill-highlight': isFillHighlighted(index, 'selected')}">
@@ -175,10 +175,10 @@
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.date" class="nav-input w-full border p-1" placeholder="日期"></td>
                     <td><input list="client-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.client_name" class="nav-input w-full border p-1" placeholder="客戶名稱"></td>
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.bill_no" class="nav-input w-full border p-1" placeholder="提單號碼"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.pieces" class="nav-input w-full border p-1 text-right" placeholder="件數"></td>
+                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.pieces" class="nav-input w-full border p-1 text-right" placeholder="箱數"></td>
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.weight" class="nav-input w-full border p-1 text-right" placeholder="重量"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" @input="isAmountManual = true" type="text" v-model.number="newRow.amount" class="nav-input w-full border p-1 text-right" placeholder="運費"></td>
-                    <td><input list="location-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.location" class="nav-input w-full border p-1" placeholder="地點"></td>
+                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" @input="isAmountManual = true" type="text" v-model.number="newRow.amount" class="nav-input w-full border p-1 text-right" placeholder="金額"></td>
+                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.forklift_fee" class="nav-input w-full border p-1 text-right" placeholder="堆高機"></td>
                     <td><input list="remark-options" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.remark" class="nav-input w-full border p-1" placeholder="備註"></td>
                     <td></td>
                     <td class="text-center">
@@ -273,10 +273,10 @@
                         amount: row.amount || 0,
                         pieces: row.pieces || 0,
                         weight: row.weight || 0,
-                        location: row.location || '',
+                        forklift_fee: row.forklift_fee || 0,
                         remark: row.remark || '',
                         is_client_data: row.is_client_data || false,
-                        client_code: '225'
+                        client_code: '639'
                     };
 
                     const response = await fetch(`/api/waybills/${row.id}`, {
@@ -505,9 +505,9 @@
                 pieces: null,
                 weight: null,
                 amount: null,
-                location: '',
+                forklift_fee: null,
                 remark: '',
-                client_code: '225'
+                client_code: '639'
             });
 
             const calculateFreight = (weight, remark) => {
@@ -654,7 +654,7 @@
 
             const fetchData = async () => {
                 try {
-                    const response = await fetch('/api/waybills?client_code=225');
+                    const response = await fetch('/api/waybills?client_code=639');
                     const data = await response.json();
                     tableData.value = data;
                 } catch (error) {
@@ -695,10 +695,10 @@
                         amount: newRow.value.amount || 0,
                         pieces: newRow.value.pieces || 0,
                         weight: newRow.value.weight || 0,
-                        location: newRow.value.location || '',
+                        forklift_fee: newRow.value.forklift_fee || 0,
                         remark: newRow.value.remark || '',
                         is_client_data: false,
-                        client_code: '225'
+                        client_code: '639'
                     };
 
                     const response = await fetch('/api/waybills', {
@@ -719,7 +719,7 @@
                         newRow.value.amount = null;
                         newRow.value.pieces = null;
                         newRow.value.weight = null;
-                        newRow.value.location = '';
+                        newRow.value.forklift_fee = null;
                         newRow.value.remark = '';
                         isAmountManual.value = false;
                         
@@ -1100,20 +1100,40 @@
                     alert('Excel 匯出模組尚未載入完成，請稍後再試。');
                     return;
                 }
-                const wsData = tableData.value.map(row => ({
-                    '日期': row.date,
-                    '客戶名稱': row.client_name,
-                    '提單號碼': row.bill_no,
-                    '件數': row.pieces,
-                    '重量': row.weight,
-                    '運費': row.amount,
-                    '地點': row.location,
-                    '備註': row.remark
-                }));
-                const ws = XLSX.utils.json_to_sheet(wsData);
+                
+                const aoa = [
+                    ["", "", "欣 華 運 通 有 限 公 司"],
+                    ["", "", "115 年 5 月  運費明細表"],
+                    ["#639大鴻"],
+                    ["日期", "客戶名稱", "提單號碼", "箱數", "重量", "金額", "堆高機", "備註"]
+                ];
+                
+                tableData.value.forEach(row => {
+                    aoa.push([
+                        row.date || '',
+                        row.client_name || '',
+                        row.bill_no || '',
+                        row.pieces || '',
+                        row.weight || '',
+                        row.amount || '',
+                        row.forklift_fee || '',
+                        row.remark || ''
+                    ]);
+                });
+                
+                aoa.push(["總計", "", "", "", "", totalAmount.value, "", ""]);
+                
+                const ws = XLSX.utils.aoa_to_sheet(aoa);
+                
+                // Merge cells for title
+                if(!ws['!merges']) ws['!merges'] = [];
+                ws['!merges'].push({ s: {r:0, c:2}, e: {r:0, c:5} });
+                ws['!merges'].push({ s: {r:1, c:2}, e: {r:1, c:5} });
+                ws['!merges'].push({ s: {r:2, c:0}, e: {r:2, c:2} });
+
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "運費明細");
-                XLSX.writeFile(wb, "225鴻天運費明細.xlsx");
+                XLSX.writeFile(wb, "639大鴻運費明細.xlsx");
             };
 
             return {

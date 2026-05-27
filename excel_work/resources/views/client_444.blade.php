@@ -1234,6 +1234,16 @@
                 aoa.push(["總計", "", "", "", "", totalAmount.value, ""]);
                 
                 const ws = XLSX.utils.aoa_to_sheet(aoa);
+                ws['!cols'] = [
+                    { wch: 15 }, // Date
+                    { wch: 25 }, // Client Name
+                    { wch: 25 }, // Bill No
+                    { wch: 12 }, // Pieces
+                    { wch: 12 }, // Weight
+                    { wch: 15 }, // Amount
+                    { wch: 18 }, // Location
+                    { wch: 30 }  // Remark
+                ];
                 
                 if(!ws['!merges']) ws['!merges'] = [];
                 ws['!merges'].push({ s: {r:0, c:2}, e: {r:0, c:4} });
@@ -1249,6 +1259,25 @@
                         if(!ws[cell_ref]) ws[cell_ref] = {t:'s', v:''};
                         
                         if (!ws[cell_ref].s) ws[cell_ref].s = {};
+                        
+                        // Default font for all data cells
+                        ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12 };
+                        
+                        // Right-align numeric columns
+                        if (C === 3 || C === 4 || C === 5) {
+                            ws[cell_ref].s.alignment = { horizontal: "right" };
+                        }
+                        
+                        if (i === tableData.value.length) {
+                            // Total row styling
+                            if (C === 2) ws[cell_ref].s.alignment = { horizontal: "right" };
+                            ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12, bold: true };
+                            ws[cell_ref].s.border = {
+                                top: { style: 'thin', color: { auto: 1 } },
+                                bottom: { style: 'double', color: { auto: 1 } }
+                            };
+                            continue;
+                        }
                         ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12 };
                         
                         // Header styling

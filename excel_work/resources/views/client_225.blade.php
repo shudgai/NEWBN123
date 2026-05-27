@@ -242,8 +242,13 @@
             const tableData = ref([]);
             
             const getCellStyle = (row, colIndex) => {
-                if (!row || !row.styles || !row.styles[colIndex]) return {};
-                return row.styles[colIndex];
+                const s = { ...row.styles[colIndex] };
+                delete s.border;
+                delete s.borderTop;
+                delete s.borderBottom;
+                delete s.borderLeft;
+                delete s.borderRight;
+                return s;
             };
             
             const isAmountManual = ref(false);
@@ -1336,19 +1341,12 @@
                                 }
                             }
                             // Border
-                            if (!ws[cell_ref].s.border) ws[cell_ref].s.border = {};
-                            ['top', 'bottom', 'left', 'right'].forEach(dir => {
-                                const jsProp = 'border' + dir.charAt(0).toUpperCase() + dir.slice(1);
-                                if (customStyle[jsProp] || customStyle.border) {
-                                    const b = customStyle[jsProp] || customStyle.border;
-                                    if (b.includes('thick') || b.includes('medium') || b.includes('2px') || b.includes('3px') || b.includes('1.5pt') || b.includes('2pt')) {
-                                        ws[cell_ref].s.border[dir] = { style: "medium", color: { rgb: "000000" } };
-                                    } else if (b.includes('thin') || b.includes('.5pt') || b.includes('1px') || b.includes('solid')) {
-                                        ws[cell_ref].s.border[dir] = { style: "thin", color: { rgb: "000000" } };
-                                    }
-                                }
-                            });
-                        }
+                            ws[cell_ref].s.border = {
+                                top: { style: thin, color: { auto: 1 } },
+                                bottom: { style: thin, color: { auto: 1 } },
+                                left: { style: thin, color: { auto: 1 } },
+                                right: { style: thin, color: { auto: 1 } }
+                            };
                     }
                 }
                 

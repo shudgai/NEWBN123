@@ -166,13 +166,13 @@
                 <!-- Data Rows -->
                 <tr v-for="(row, index) in tableData" :key="row.id || index" :data-id="row.id" class="border-b border-gray-300 hover:bg-gray-50">
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'date')}" :style="getCellStyle(row, 0)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.date" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'date', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'bill_no')}" :style="getCellStyle(row, 2)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.bill_no" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'bill_no', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'client_name')}" :style="getCellStyle(row, 1)"><input list="client-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.client_name" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'client_name', $event)"></div></td>
-                    <td class="p-0 text-right relative group" :class="{'fill-highlight': isFillHighlighted(index, 'amount')}" :style="getCellStyle(row, 5)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.amount" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'amount', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}" :style="getCellStyle(row, 3)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}" :style="getCellStyle(row, 4)"><input autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}"><input list="location-names" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}" :style="getCellStyle(row, 6)"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="handleRemarkChange(row, index)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'bill_no')}" :style="getCellStyle(row, 1)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.bill_no" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'bill_no', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'client_name')}" :style="getCellStyle(row, 2)"><input list="client-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.client_name" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'client_name', $event)"></div></td>
+                    <td class="p-0 text-right relative group" :class="{'fill-highlight': isFillHighlighted(index, 'amount')}" :style="getCellStyle(row, 3)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.amount" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'amount', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}" :style="getCellStyle(row, 4)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}" :style="getCellStyle(row, 5)"><input autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}" :style="getCellStyle(row, 6)"><input list="location-names" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}" :style="getCellStyle(row, 7)"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="handleRemarkChange(row, index)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
                     <td class="p-1 text-right text-blue-600 font-bold bg-gray-50 align-middle">@{{ getGroupTotalWeight(row) }}</td>
                     <td class="p-0 text-center align-middle relative group" :class="{'fill-highlight': isFillHighlighted(index, 'selected')}">
                         <input type="checkbox" v-model="selectedRows" :value="row.id" class="w-4 h-4 cursor-pointer align-middle opacity-50 group-hover:opacity-100 transition-opacity" :class="{'opacity-100': selectedRows.includes(row.id)}">
@@ -1463,14 +1463,13 @@
                     return;
                 }
                 const wsData = tableData.value.map(row => ({
-                    '運送日期': row.date,
+                    '日期': row.date,
                     '帳單編號': row.bill_no,
                     '客戶名稱': row.client_name,
-                    ' ': '', // Empty column for logo
                     '運費金額': row.amount,
-                    '  ': '', // Empty column for logo
                     '件數': row.pieces,
                     '重量': row.weight,
+                    '地點': row.location,
                     '備註': row.remark
                 }));
                 
@@ -1491,10 +1490,10 @@
                 
                 const colHeaders = wsData.length > 0 ? Object.keys(wsData[0]) : [];
                 const aoa = [
-                    ['', '', '', '', '', '', '', '', ''],
-                    ['運送公司:', '欣華運通有限公司', '', '叫車公司:', clientName, '', '', '', ''],
-                    ['運送日期:', dateRange, '', '製表日期 :', formattedToday, '', '', '', ''],
-                    ['', '', '', '', '', '', '', '', ''],
+                    ['', '', '', '', '', '', '', ''],
+                    ['運送公司:', '欣華運通有限公司', '', '叫車公司:', clientName, '', '', ''],
+                    ['運送日期:', dateRange, '', '製表日期 :', formattedToday, '', '', ''],
+                    ['', '', '', '', '', '', '', ''],
                     colHeaders
                 ];
                 
@@ -1505,19 +1504,19 @@
                     totalWeight += (Number(row['重量']) || 0);
                     totalAmount += (Number(row['運費金額']) || 0);
                 });
-                // Total row (9 columns)
-                aoa.push(['', '', '總計', '', totalAmount, '', totalPieces, totalWeight, '']);
+                
+                // Total row
+                aoa.push(['', '', '總計', totalAmount, totalPieces, totalWeight, '', '']);
                 
                 const ws = XLSX.utils.aoa_to_sheet(aoa);
                 ws['!cols'] = [
                     { wch: 15 }, // Date
                     { wch: 20 }, // Bill No
                     { wch: 25 }, // Client Name
-                    { wch: 8 },  // Logo 1
                     { wch: 15 }, // Amount
-                    { wch: 8 },  // Logo 2
                     { wch: 10 }, // Pieces
                     { wch: 10 }, // Weight
+                    { wch: 15 }, // Location
                     { wch: 30 }  // Remark
                 ];
                 
@@ -1532,8 +1531,8 @@
                         if (!ws[cell_ref].s) ws[cell_ref].s = {};
                         ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12 };
                         
-                        // Right-align numeric columns: Amount(4), Pieces(6), Weight(7)
-                        if (C === 4 || C === 6 || C === 7) {
+                        // Right-align numeric columns: Amount(3), Pieces(4), Weight(5)
+                        if (C === 3 || C === 4 || C === 5) {
                             ws[cell_ref].s.alignment = { horizontal: "right" };
                         }
                         
@@ -1569,14 +1568,7 @@
                         if (!ws[cell_ref].s) ws[cell_ref].s = {};
                         
                         // Map export column C to UI style index
-                        let cellStyleIndex = -1;
-                        if (C === 0) cellStyleIndex = 0; // date
-                        else if (C === 1) cellStyleIndex = 1; // bill_no
-                        else if (C === 2) cellStyleIndex = 2; // client_name
-                        else if (C === 4) cellStyleIndex = 3; // amount
-                        else if (C === 6) cellStyleIndex = 4; // pieces
-                        else if (C === 7) cellStyleIndex = 5; // weight
-                        else if (C === 8) cellStyleIndex = 7; // remark
+                        let cellStyleIndex = C; // Since we exactly match the 8 columns: 0..7
                         
                         const customStyle = (cellStyleIndex >= 0 && rowData.styles) ? rowData.styles[cellStyleIndex] : null;
                         

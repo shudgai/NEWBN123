@@ -1266,24 +1266,7 @@
                         
                         if (!ws[cell_ref].s) ws[cell_ref].s = {};
                         
-                        // Default font for all data cells
-                        ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12 };
                         
-                        // Right-align numeric columns
-                        if (C === 3 || C === 4 || C === 5) {
-                            ws[cell_ref].s.alignment = { horizontal: "right" };
-                        }
-                        
-                        if (i === tableData.value.length) {
-                            // Total row styling
-                            if (C === 2) ws[cell_ref].s.alignment = { horizontal: "right" };
-                            ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12, bold: true };
-                            ws[cell_ref].s.border = {
-                                top: { style: 'thin', color: { auto: 1 } },
-                                bottom: { style: 'double', color: { auto: 1 } }
-                            };
-                            continue;
-                        }
                         ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12 };
                         
                         // Header styling

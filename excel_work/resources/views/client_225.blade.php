@@ -1277,26 +1277,12 @@
                         // FIX: Ensure empty cells are created so they can get background color!
                         if(!ws[cell_ref]) ws[cell_ref] = {t:'s', v:''};
                         if (!ws[cell_ref].s) ws[cell_ref].s = {};
-                        
-                        // Default font for all data cells
                         ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12 };
                         
-                        // Right-align numeric columns
+                        // Right-align numeric columns (Pieces, Weight, Amount)
                         if (C === 3 || C === 4 || C === 5) {
                             ws[cell_ref].s.alignment = { horizontal: "right" };
                         }
-                        
-                        if (i === tableData.value.length) {
-                            // Total row styling
-                            if (C === 2) ws[cell_ref].s.alignment = { horizontal: "right" };
-                            ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12, bold: true };
-                            ws[cell_ref].s.border = {
-                                top: { style: 'thin', color: { auto: 1 } },
-                                bottom: { style: 'double', color: { auto: 1 } }
-                            };
-                            continue;
-                        }
-                        ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12 };
                         
                         // Header styling for Row 5 (index 4)
                         if (R === 4) {
@@ -1306,12 +1292,22 @@
                             };
                             ws[cell_ref].s.font.bold = true;
                         }
+                        
+                        // Total row styling (last row)
+                        if (R === range.e.r && R > 4) {
+                            if (C === 2) ws[cell_ref].s.alignment = { horizontal: "right" };
+                            ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12, bold: true };
+                            ws[cell_ref].s.border = {
+                                top: { style: 'thin', color: { auto: 1 } },
+                                bottom: { style: 'double', color: { auto: 1 } }
+                            };
+                        }
                     }
                 }
                 
                 // Data rows start at index 5
                 const dataStartRow = 5;
-                for (let i = 0; i <= tableData.value.length; i++) {
+                for (let i = 0; i < tableData.value.length; i++) {
                     const rowData = tableData.value[i];
                     const R = dataStartRow + i;
                     for(let C = range.s.c; C <= range.e.c; ++C) {

@@ -18,6 +18,13 @@ class Waybill extends Model
         'weight',
         'location',
         'remark',
-        'is_client_data'
+        'is_client_data',
+        'client_code'
+    ];
+
+    protected $casts = [
+        'weight' => 'integer',
+        'amount' => 'integer',
+        'pieces' => 'integer',
     ];
 }

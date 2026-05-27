@@ -8,9 +8,10 @@ use Illuminate\Http\Request;
 
 class WaybillController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return response()->json(Waybill::orderBy('id', 'asc')->get());
+        $clientCode = $request->query('client_code', '206');
+        return response()->json(Waybill::where('client_code', $clientCode)->orderBy('id', 'asc')->get());
     }
 
     public function store(Request $request)
@@ -25,6 +26,7 @@ class WaybillController extends Controller
             'location' => 'nullable|string',
             'remark' => 'nullable|string',
             'is_client_data' => 'nullable|boolean',
+            'client_code' => 'nullable|string',
         ]);
 
         $waybill = Waybill::create($validated);
@@ -46,6 +48,7 @@ class WaybillController extends Controller
             'location' => 'nullable|string',
             'remark' => 'nullable|string',
             'is_client_data' => 'nullable|boolean',
+            'client_code' => 'nullable|string',
         ]);
 
         $waybill->update($validated);
@@ -61,9 +64,10 @@ class WaybillController extends Controller
         return response()->json(['message' => 'Waybill deleted successfully']);
     }
 
-    public function truncate()
+    public function truncate(Request $request)
     {
-        Waybill::truncate();
-        return response()->json(['message' => 'All waybills truncated successfully']);
+        $clientCode = $request->query('client_code', '206');
+        Waybill::where('client_code', $clientCode)->delete();
+        return response()->json(['message' => "All waybills for client {$clientCode} truncated successfully"]);
     }
 }

@@ -84,6 +84,9 @@
             <button @click="clearAllData" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded shadow transition-colors">
                 清空全部資料
             </button>
+            <button v-if="selectedRows.length > 0" @click="deleteSelected" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
+                刪除選取項目 (@{{ selectedRows.length }})
+            </button>
         </div>
         <div class="flex items-center gap-4">
             <label for="fontSizeSlider" class="font-bold text-sm text-gray-700">字體大小調整 (目前: @{{ fontSize }}px)</label>
@@ -119,6 +122,9 @@
     <datalist id="client-names">
         <option v-for="name in uniqueClientNames" :key="name" :value="name"></option>
     </datalist>
+    <datalist id="location-names">
+        <option v-for="loc in uniqueLocations" :key="loc" :value="loc"></option>
+    </datalist>
     <datalist id="remark-options">
         <option value="同下批"></option>
         <option value="及下批"></option>
@@ -130,17 +136,30 @@
     </datalist>
     <div class="overflow-x-auto border-t-2 border-b-2 border-black py-1">
         <table class="text-left border-collapse excel-table" :style="{ fontSize: fontSize + 'px' }" ref="excelTable">
-            <thead>
-                <tr class="bg-gray-100 border-b-2 border-black">
+            <thead class="sticky top-0 z-10 bg-gray-100 shadow-sm">
+                <tr class="border-b-2 border-black">
                     <th style="width: 100px;">日期</th>
-                    <th style="width: 100px;">帳單編號</th>
-                    <th style="width: 100px;">客戶名稱</th>
-                    <th style="width: 100px;" class="text-right">運費金額</th>
-                    <th style="width: 60px;" class="text-right">件數</th>
-                    <th style="width: 60px;" class="text-right">重量</th>
+                    <th @click="sortBy('bill_no')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">
+                        帳單編號 <span v-if="sortState.column === 'bill_no'" class="text-xs">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
+                    </th>
+                    <th @click="sortBy('client_name')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">
+                        客戶名稱 <span v-if="sortState.column === 'client_name'" class="text-xs">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
+                    </th>
+                    <th @click="sortBy('amount')" style="width: 100px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">
+                        運費金額 <span v-if="sortState.column === 'amount'" class="text-xs">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
+                    </th>
+                    <th @click="sortBy('pieces')" style="width: 60px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">
+                        件數 <span v-if="sortState.column === 'pieces'" class="text-xs">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
+                    </th>
+                    <th @click="sortBy('weight')" style="width: 60px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">
+                        重量 <span v-if="sortState.column === 'weight'" class="text-xs">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
+                    </th>
                     <th style="width: 100px;">地點</th>
                     <th style="width: 150px;">備註</th>
-                    <th style="width: 40px;" class="text-center"></th>
+                    <th style="width: 60px;" class="text-right">總重</th>
+                    <th style="width: 40px;" class="text-center">
+                        <input type="checkbox" @change="toggleAllSelection" :checked="isAllSelected" class="w-4 h-4 cursor-pointer align-middle" title="全選/取消全選">
+                    </th>
                 </tr>
             </thead>
             <tbody @paste="handlePaste">
@@ -152,10 +171,12 @@
                     <td class="p-0 text-right relative group" :class="{'fill-highlight': isFillHighlighted(index, 'amount')}"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.amount" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'amount', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}"><input autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}"><input autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}"><input list="location-names" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="handleRemarkChange(row, index)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
-                    <td class="p-0 text-center align-middle relative group">
-                        <button @click="deleteRow(row.id)" class="text-red-300 hover:text-red-700 font-bold px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+                    <td class="p-1 text-right text-blue-600 font-bold bg-gray-50 align-middle">@{{ getGroupTotalWeight(row) }}</td>
+                    <td class="p-0 text-center align-middle relative group" :class="{'fill-highlight': isFillHighlighted(index, 'selected')}">
+                        <input type="checkbox" v-model="selectedRows" :value="row.id" class="w-4 h-4 cursor-pointer align-middle opacity-50 group-hover:opacity-100 transition-opacity" :class="{'opacity-100': selectedRows.includes(row.id)}">
+                        <div class="fill-handle" @mousedown="startFill(index, 'selected', $event)"></div>
                     </td>
                 </tr>
 
@@ -167,8 +188,9 @@
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" @input="isAmountManual = true" type="text" v-model.number="newRow.amount" class="nav-input w-full border p-1 text-right" placeholder="金額"></td>
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.pieces" class="nav-input w-full border p-1 text-right" placeholder="件數"></td>
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.weight" class="nav-input w-full border p-1 text-right" placeholder="重量"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.location" class="nav-input w-full border p-1" placeholder="地點"></td>
+                    <td><input list="location-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.location" class="nav-input w-full border p-1" placeholder="地點"></td>
                     <td><input list="remark-options" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.remark" class="nav-input w-full border p-1" placeholder="備註"></td>
+                    <td></td>
                     <td class="text-center">
                         <button @click="addRow" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm shadow">新增</button>
                     </td>
@@ -180,10 +202,30 @@
                     <td class="text-right">@{{ totalAmount }}</td>
                     <td class="text-right"></td>
                     <td class="text-right"></td>
-                    <td colspan="3"></td>
+                    <td colspan="4"></td>
                 </tr>
             </tbody>
         </table>
+    </div>
+
+    <!-- Bottom Controls -->
+    <div class="mt-4 flex justify-between items-center p-3 bg-gray-50 rounded border border-gray-300 shadow-sm">
+        <div class="flex gap-4 items-center">
+            <span class="text-gray-700 font-bold text-lg">快速排序：</span>
+            <button @click="sortBy('bill_no')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
+                <span>依帳單編號排序</span>
+                <span v-if="sortState.column === 'bill_no'" class="text-xs bg-indigo-700 px-1 rounded">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
+            </button>
+            <button @click="resetView" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
+                <span>恢復介面</span>
+            </button>
+            <span class="text-sm text-gray-500 ml-2">※ 提示：如果有打勾選取超過1筆資料，只會針對選取的資料重新排序</span>
+        </div>
+        <div>
+            <button v-if="selectedRows.length > 0" @click="deleteSelected" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
+                刪除選取項目 (@{{ selectedRows.length }})
+            </button>
+        </div>
     </div>
 
     <!-- Undo Toast Notification -->
@@ -204,6 +246,124 @@
             const tableData = ref([]);
             
             const isAmountManual = ref(false);
+            const sortState = ref({ column: null, order: 'asc' });
+
+            const resetView = async () => {
+                sortState.value = { column: null, order: 'asc' };
+                selectedRows.value = [];
+                await fetchData();
+            };
+
+            const sortBy = (column) => {
+                if (sortState.value.column === column) {
+                    sortState.value.order = sortState.value.order === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortState.value.column = column;
+                    sortState.value.order = 'asc';
+                }
+
+                const groups = [];
+                let i = 0;
+                while (i < tableData.value.length) {
+                    const row = tableData.value[i];
+                    let endIdx = i;
+                    while (endIdx < tableData.value.length - 1) {
+                        const curr = tableData.value[endIdx];
+                        if (curr.remark && (curr.remark.includes('同下批') || curr.remark.includes('及下批') || curr.remark.includes('一齊'))) {
+                            const next = tableData.value[endIdx + 1];
+                            if (next.date === row.date && next.client_name === row.client_name) {
+                                endIdx++;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    groups.push(tableData.value.slice(i, endIdx + 1));
+                    i = endIdx + 1;
+                }
+
+                // If multiple rows are selected, only sort those groups. Otherwise, sort all groups.
+                const hasSelection = selectedRows.value.length > 1;
+                
+                const groupsToSort = [];
+                const indicesToSort = [];
+
+                groups.forEach((group, index) => {
+                    if (!hasSelection || group.some(row => selectedRows.value.includes(row.id))) {
+                        groupsToSort.push(group);
+                        indicesToSort.push(index);
+                    }
+                });
+
+                groupsToSort.sort((groupA, groupB) => {
+                    let valA, valB;
+                    
+                    if (['amount', 'pieces', 'weight'].includes(column)) {
+                        valA = groupA.reduce((sum, r) => sum + (parseFloat(r[column]) || 0), 0);
+                        valB = groupB.reduce((sum, r) => sum + (parseFloat(r[column]) || 0), 0);
+                    } else {
+                        valA = groupA[0][column] || '';
+                        valB = groupB[0][column] || '';
+                    }
+
+                    let cmp = 0;
+                    if (typeof valA === 'number' && typeof valB === 'number') {
+                        cmp = valA - valB;
+                    } else {
+                        cmp = valA.toString().localeCompare(valB.toString(), undefined, { numeric: true, sensitivity: 'base' });
+                    }
+
+                    if (cmp !== 0) {
+                        return sortState.value.order === 'asc' ? cmp : -cmp;
+                    }
+                    return 0;
+                });
+
+                if (hasSelection) {
+                    groupsToSort.forEach(group => {
+                        if (group.length > 1) {
+                            const originalIds = group.map(r => r.id);
+                            const originalRemarks = group.map(r => r.remark);
+                            
+                            group.sort((rowA, rowB) => {
+                                let valA = rowA[column] || '';
+                                let valB = rowB[column] || '';
+                                let cmp = 0;
+                                if (typeof valA === 'number' && typeof valB === 'number') {
+                                    cmp = valA - valB;
+                                } else {
+                                    cmp = valA.toString().localeCompare(valB.toString(), undefined, { numeric: true, sensitivity: 'base' });
+                                }
+                                if (cmp !== 0) {
+                                    return sortState.value.order === 'asc' ? cmp : -cmp;
+                                }
+                                return 0;
+                            });
+
+                            group.forEach((r, i) => {
+                                r.id = originalIds[i];
+                                r.remark = originalRemarks[i];
+                            });
+                        }
+                    });
+                }
+
+                for (let j = 0; j < indicesToSort.length; j++) {
+                    groups[indicesToSort[j]] = groupsToSort[j];
+                }
+
+                tableData.value = groups.flat();
+
+                if (hasSelection) {
+                    groupsToSort.forEach(group => {
+                        if (group.length > 1) {
+                            recalculateAndSave(group[0]);
+                        }
+                    });
+                }
+            };
             
             const handleArrowKeys = (e) => {
                 if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'].includes(e.key)) return;
@@ -279,25 +439,161 @@
                 }
             };
 
+            const getGroupRows = (targetRow) => {
+                const idx = tableData.value.findIndex(r => r.id === targetRow.id);
+                if (idx === -1) return [targetRow];
+                
+                let startIdx = idx;
+                while (startIdx > 0) {
+                    const prev = tableData.value[startIdx - 1];
+                    if (prev.date === targetRow.date && prev.client_name === targetRow.client_name && prev.remark && (prev.remark.includes('同下批') || prev.remark.includes('及下批') || prev.remark.includes('一齊'))) {
+                        startIdx--;
+                    } else {
+                        break;
+                    }
+                }
+                
+                let endIdx = idx;
+                while (endIdx < tableData.value.length - 1) {
+                    const curr = tableData.value[endIdx];
+                    if (curr.remark && (curr.remark.includes('同下批') || curr.remark.includes('及下批') || curr.remark.includes('一齊'))) {
+                        const next = tableData.value[endIdx + 1];
+                        if (next.date === targetRow.date && next.client_name === targetRow.client_name) {
+                            endIdx++;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                
+                const group = tableData.value.slice(startIdx, endIdx + 1);
+                const hasGrouping = group.some(r => r.remark && (r.remark.includes('同下批') || r.remark.includes('及下批') || r.remark.includes('共') || r.remark.includes('一齊')));
+                
+                if (hasGrouping && group.length > 1) {
+                    return group;
+                }
+                return [targetRow];
+            };
+
+            const getGroupTotalWeight = (row) => {
+                const group = getGroupRows(row);
+                if (group.length <= 1) return '';
+                
+                let maxWeight = -1;
+                let maxWeightId = null;
+                let totalW = 0;
+                for (let i = 0; i < group.length; i++) {
+                    const r = group[i];
+                    const w = parseFloat(r.weight) || 0;
+                    totalW += w;
+                    if (w > maxWeight) {
+                        maxWeight = w;
+                        maxWeightId = r.id;
+                    }
+                }
+                
+                if (row.id === maxWeightId) {
+                    return totalW;
+                }
+                return '';
+            };
+
             const recalculateAndSave = async (row) => {
-                if (row.weight) {
-                    row.weight = Math.round(row.weight);
+                if (row.weight) row.weight = Math.round(row.weight);
+                
+                const group = getGroupRows(row);
+                
+                if (group.length === 1) {
+                    const textToCheck = (row.location || '') + ' ' + (row.remark || '');
+                    const newAmount = calculateFreight(row.weight, textToCheck, row.client_name);
+                    if (newAmount > 0) row.amount = newAmount;
+                    await updateRow(row);
+                    return;
                 }
-                const textToCheck = (row.location || '') + ' ' + (row.remark || '');
-                const newAmount = calculateFreight(row.weight, textToCheck, row.client_name);
-                if (newAmount > 0) {
-                    row.amount = newAmount;
+                
+                let totalWeight = 0;
+                let combinedText = '';
+                let maxWeight = -1;
+                let maxWeightIndex = 0;
+                let tongXiaPiIndex = -1;
+                
+                for (let i = 0; i < group.length; i++) {
+                    const r = group[i];
+                    if (r.weight) {
+                        r.weight = Math.round(r.weight);
+                        totalWeight += r.weight;
+                        if (r.weight > maxWeight) {
+                            maxWeight = r.weight;
+                            maxWeightIndex = i;
+                        }
+                    }
+                    if (tongXiaPiIndex === -1 && r.remark && r.remark.includes('同下批')) {
+                        tongXiaPiIndex = i;
+                    }
+                    combinedText += (r.location || '') + ' ' + (r.remark || '') + ' ';
                 }
-                await updateRow(row);
+                
+                const clientName = group[0].client_name || '';
+                const is206 = clientName.includes('206');
+                const targetIndex = is206 ? maxWeightIndex : (tongXiaPiIndex !== -1 ? tongXiaPiIndex : maxWeightIndex);
+                
+                const newAmount = calculateFreight(totalWeight, combinedText, clientName);
+                const finalAmount = newAmount > 0 ? newAmount : 0;
+                
+                for (let i = 0; i < group.length; i++) {
+                    if (i === targetIndex) {
+                        group[i].amount = finalAmount;
+                    } else {
+                        group[i].amount = 0;
+                    }
+                    await updateRow(group[i]);
+                }
             };
 
             const previewFreight = (row) => {
-                const textToCheck = (row.location || '') + ' ' + (row.remark || '');
-                const newAmount = calculateFreight(row.weight, textToCheck, row.client_name);
-                if (newAmount > 0) {
-                    row.amount = newAmount;
-                } else if (newAmount === -1) {
-                    row.amount = 0;
+                const group = getGroupRows(row);
+                if (group.length === 1) {
+                    const textToCheck = (row.location || '') + ' ' + (row.remark || '');
+                    const newAmount = calculateFreight(row.weight, textToCheck, row.client_name);
+                    if (newAmount > 0) {
+                        row.amount = newAmount;
+                    } else if (newAmount === -1) {
+                        row.amount = 0;
+                    }
+                    return;
+                }
+                
+                let totalWeight = 0;
+                let combinedText = '';
+                let maxWeight = -1;
+                let maxWeightIndex = 0;
+                let tongXiaPiIndex = -1;
+                
+                for (let i = 0; i < group.length; i++) {
+                    const r = group[i];
+                    const w = parseFloat(r.weight) || 0;
+                    totalWeight += w;
+                    if (w > maxWeight) {
+                        maxWeight = w;
+                        maxWeightIndex = i;
+                    }
+                    if (tongXiaPiIndex === -1 && r.remark && r.remark.includes('同下批')) {
+                        tongXiaPiIndex = i;
+                    }
+                    combinedText += (r.location || '') + ' ' + (r.remark || '') + ' ';
+                }
+                
+                const clientName = group[0].client_name || '';
+                const is206 = clientName.includes('206');
+                const targetIndex = is206 ? maxWeightIndex : (tongXiaPiIndex !== -1 ? tongXiaPiIndex : maxWeightIndex);
+                
+                const newAmount = calculateFreight(totalWeight, combinedText, clientName);
+                const finalAmount = newAmount > 0 ? newAmount : (newAmount === -1 ? 0 : 0);
+                
+                for (let i = 0; i < group.length; i++) {
+                    group[i].amount = (i === targetIndex) ? finalAmount : 0;
                 }
             };
 
@@ -328,7 +624,7 @@
                     startIdx: index,
                     endIdx: index,
                     field: field,
-                    value: tableData.value[index][field]
+                    value: field === 'selected' ? selectedRows.value.includes(tableData.value[index].id) : tableData.value[index][field]
                 };
                 document.addEventListener('mousemove', handleFillMove);
                 document.addEventListener('mouseup', handleFillUp);
@@ -362,8 +658,21 @@
 
                 for (let i = minIdx; i <= maxIdx; i++) {
                     if (i === startIdx) continue;
+                    
+                    if (field === 'selected') {
+                        const rowId = tableData.value[i].id;
+                        if (value === true && !selectedRows.value.includes(rowId)) {
+                            selectedRows.value.push(rowId);
+                        } else if (value === false) {
+                            selectedRows.value = selectedRows.value.filter(id => id !== rowId);
+                        }
+                        continue;
+                    }
+
                     tableData.value[i][field] = value;
-                    if (field === 'weight' || field === 'location' || field === 'remark') {
+                    if (field === 'remark') {
+                        await handleRemarkChange(tableData.value[i], i);
+                    } else if (field === 'weight' || field === 'location') {
                         await recalculateAndSave(tableData.value[i]);
                     } else {
                         await updateRow(tableData.value[i]);
@@ -598,6 +907,14 @@
                     const response = await fetch('/api/waybills');
                     const data = await response.json();
                     tableData.value = data;
+                    
+                    if (sortState.value.column) {
+                        const col = sortState.value.column;
+                        const order = sortState.value.order;
+                        sortState.value.column = null;
+                        sortState.value.order = order === 'asc' ? 'desc' : 'asc';
+                        sortBy(col);
+                    }
                 } catch (error) {
                     console.error("Error fetching data:", error);
                 }
@@ -610,6 +927,7 @@
                 }
                 
                 try {
+                    let isGrouped = false;
                     if (newRow.value.remark === '共') {
                         let count = 1;
                         for (let i = tableData.value.length - 1; i >= 0; i--) {
@@ -623,6 +941,9 @@
                             }
                         }
                         newRow.value.remark = `共${numberToChinese(count)}批`;
+                        isGrouped = true;
+                    } else if (newRow.value.remark && (newRow.value.remark.includes('同下批') || newRow.value.remark.includes('及下批') || newRow.value.remark.includes('一齊'))) {
+                        isGrouped = true;
                     }
 
                     const payload = {
@@ -647,6 +968,10 @@
                     });
 
                     if (response.ok) {
+                        const savedDate = newRow.value.date;
+                        const savedClientName = newRow.value.client_name;
+                        const savedRemark = newRow.value.remark;
+
                         newRow.value.bill_no = '';
                         newRow.value.amount = null;
                         newRow.value.pieces = null;
@@ -656,6 +981,14 @@
                         isAmountManual.value = false;
                         
                         await fetchData();
+                        
+                        if (isGrouped) {
+                            // Find the newly added row and trigger recalculate
+                            const rows = tableData.value.filter(r => r.date === savedDate && r.client_name === savedClientName && r.remark === savedRemark);
+                            if (rows.length > 0) {
+                                await recalculateAndSave(rows[rows.length - 1]);
+                            }
+                        }
                         
                         setTimeout(() => {
                             if (document.activeElement && document.activeElement.tagName === 'INPUT') {
@@ -864,6 +1197,42 @@
                 await fetchData();
             };
 
+            const selectedRows = ref([]);
+            
+            const isAllSelected = computed(() => {
+                return tableData.value.length > 0 && selectedRows.value.length === tableData.value.length;
+            });
+            
+            const toggleAllSelection = (e) => {
+                if (e.target.checked) {
+                    selectedRows.value = tableData.value.map(r => r.id);
+                } else {
+                    selectedRows.value = [];
+                }
+            };
+            
+            const deleteSelected = async () => {
+                if (!confirm(`確定要刪除選取的 ${selectedRows.value.length} 筆資料嗎？`)) return;
+                
+                try {
+                    let hasError = false;
+                    for (const id of selectedRows.value) {
+                        const response = await fetch(`/api/waybills/${id}`, { method: 'DELETE' });
+                        if (!response.ok) hasError = true;
+                    }
+                    
+                    if (hasError) {
+                        alert("部分資料刪除失敗");
+                    }
+                    
+                    selectedRows.value = [];
+                    await fetchData();
+                } catch (error) {
+                    console.error("Error deleting data:", error);
+                    alert("刪除失敗");
+                }
+            };
+
             const deleteRow = async (id) => {
                 if (!confirm('確定要刪除這筆資料嗎？')) return;
                 
@@ -916,6 +1285,14 @@
                     if (row.client_name) names.add(row.client_name);
                 });
                 return Array.from(names).sort();
+            });
+
+            const uniqueLocations = computed(() => {
+                const locs = new Set();
+                tableData.value.forEach(row => {
+                    if (row.location) locs.add(row.location);
+                });
+                return Array.from(locs).sort();
             });
 
             const handleGlobalKeyDown = (e) => {
@@ -1000,6 +1377,9 @@
                 fontSize,
                 tableData,
                 uniqueClientNames,
+                uniqueLocations,
+                sortState,
+                sortBy,
                 newRow,
                 addRow,
                 updateRow,
@@ -1007,10 +1387,16 @@
                 handleArrowKeys,
                 handlePaste,
                 exportExcel,
+                undoPaste,
                 clearAllData,
+                selectedRows,
+                isAllSelected,
+                toggleAllSelection,
+                deleteSelected,
                 totalAmount,
                 totalPieces,
                 totalWeight,
+                getGroupTotalWeight,
                 startFill,
                 isFillHighlighted,
                 showToast,

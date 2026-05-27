@@ -20,12 +20,14 @@ class Waybill extends Model
         'remark',
         'is_client_data',
         'client_code',
-        'forklift_fee'
+        'forklift_fee',
+        'styles'
     ];
 
     protected $casts = [
         'weight' => 'integer',
         'amount' => 'integer',
         'pieces' => 'integer',
+        'styles' => 'array',
     ];
 }

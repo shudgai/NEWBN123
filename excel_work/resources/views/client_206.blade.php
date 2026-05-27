@@ -76,21 +76,21 @@
 <div id="app" v-cloak class="max-w-7xl mx-auto bg-white p-8 shadow-sm">
     
     <!-- Controls Section -->
-    <div class="mb-4 flex justify-between items-center bg-gray-50 p-3 rounded border">
-        <div class="flex gap-4">
-            <button @click="exportExcel" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
-                匯出 Excel
-            </button>
-            <button @click="clearAllData" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded shadow transition-colors">
+    <div class="mb-4 flex justify-between items-center bg-gray-50 p-3 rounded border w-full">
+        <div>
+            <button @click="clearAllData" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0">
                 清空全部資料
             </button>
-            <button v-if="selectedRows.length > 0" @click="deleteSelected" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
-                刪除選取項目 (@{{ selectedRows.length }})
-            </button>
         </div>
-        <div class="flex items-center gap-4">
-            <label for="fontSizeSlider" class="font-bold text-sm text-gray-700">字體大小調整 (目前: @{{ fontSize }}px)</label>
-            <input type="range" id="fontSizeSlider" v-model="fontSize" min="10" max="24" step="1" class="w-48 cursor-pointer">
+        <div class="flex items-center justify-center gap-4">
+            <label for="fontSizeSlider" class="font-bold text-sm text-gray-700 whitespace-nowrap">字體大小調整 (目前: @{{ fontSize }}px)</label>
+            <input type="range" id="fontSizeSlider" v-model="fontSize" min="10" max="24" step="1" class="w-32 md:w-48 cursor-pointer focus:outline-none focus:ring-0">
+        </div>
+        <div>
+            <button @click="scrollToBottom" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2 focus:outline-none focus:ring-0">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+                移至最底
+            </button>
         </div>
     </div>
 
@@ -165,14 +165,14 @@
             <tbody @paste="handlePaste">
                 <!-- Data Rows -->
                 <tr v-for="(row, index) in tableData" :key="row.id || index" :data-id="row.id" class="border-b border-gray-300" :class="{'bg-yellow-200': row.is_client_data, 'hover:bg-yellow-50': !row.is_client_data}">
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'date')}"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.date" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'date', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'bill_no')}"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.bill_no" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'bill_no', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'client_name')}"><input list="client-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.client_name" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'client_name', $event)"></div></td>
-                    <td class="p-0 text-right relative group" :class="{'fill-highlight': isFillHighlighted(index, 'amount')}"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.amount" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'amount', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}"><input autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'date')}" :style="getCellStyle(row, 0)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.date" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'date', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'bill_no')}" :style="getCellStyle(row, 2)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.bill_no" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'bill_no', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'client_name')}" :style="getCellStyle(row, 1)"><input list="client-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.client_name" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'client_name', $event)"></div></td>
+                    <td class="p-0 text-right relative group" :class="{'fill-highlight': isFillHighlighted(index, 'amount')}" :style="getCellStyle(row, 5)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.amount" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'amount', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}" :style="getCellStyle(row, 3)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}" :style="getCellStyle(row, 4)"><input autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}"><input list="location-names" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="handleRemarkChange(row, index)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}" :style="getCellStyle(row, 6)"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="handleRemarkChange(row, index)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
                     <td class="p-1 text-right text-blue-600 font-bold bg-gray-50 align-middle">@{{ getGroupTotalWeight(row) }}</td>
                     <td class="p-0 text-center align-middle relative group" :class="{'fill-highlight': isFillHighlighted(index, 'selected')}">
                         <input type="checkbox" v-model="selectedRows" :value="row.id" class="w-4 h-4 cursor-pointer align-middle opacity-50 group-hover:opacity-100 transition-opacity" :class="{'opacity-100': selectedRows.includes(row.id)}">
@@ -209,34 +209,46 @@
     </div>
 
     <!-- Bottom Controls -->
-    <div class="mt-4 flex justify-between items-center p-3 bg-gray-50 rounded border border-gray-300 shadow-sm">
-        <div class="flex gap-4 items-center">
-            <span class="text-gray-700 font-bold text-lg">快速排序：</span>
-            <button @click="sortBy('bill_no')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
-                <span>依帳單編號排序</span>
-                <span v-if="sortState.column === 'bill_no'" class="text-xs bg-indigo-700 px-1 rounded">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
+    <div class="mt-4 p-4 bg-gray-50 border border-gray-300 rounded-lg shadow-sm">
+        <div class="flex flex-wrap gap-4 items-center justify-between">
+            <div class="flex gap-4 items-center">
+                <span class="text-gray-700 font-bold text-lg">快速排序：</span>
+                <button @click="sortBy('bill_no')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
+                    <span>依帳單編號排序</span>
+                    <span v-if="sortState.column === 'bill_no'" class="text-xs bg-indigo-700 px-1 rounded">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
+                </button>
+                <button @click="resetView" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
+                    <span>恢復介面</span>
+                </button>
+            
+                
+            
+            <button @click="scrollToTop" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+                移至最上方
             </button>
-            <button @click="resetView" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
-                <span>恢復介面</span>
+            <a href="/" class="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded shadow transition-colors">
+                回首頁
+            </a>
+            <button @click="exportExcel" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
+                匯出 Excel
             </button>
-            <span class="text-sm text-gray-500 ml-2">※ 提示：如果有打勾選取超過1筆資料，只會針對選取的資料重新排序</span>
-        </div>
-        <div>
             <button v-if="selectedRows.length > 0" @click="deleteSelected" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
                 刪除選取項目 (@{{ selectedRows.length }})
             </button>
+
+            </div>
         </div>
     </div>
 
-    <!-- Undo Toast Notification -->
     <div v-if="showToast" class="fixed bottom-4 right-4 bg-gray-800 text-white px-6 py-3 rounded shadow-lg flex items-center gap-4 z-50 transition-opacity duration-300">
         <span>@{{ toastMessage }}</span>
-        <button @click="undoPaste" class="text-yellow-400 font-bold hover:text-yellow-300 underline">復原 (Undo)</button>
+        <button @click="undoAction" class="text-yellow-400 font-bold hover:text-yellow-300 underline">復原 (Undo)</button>
         <button @click="showToast = false" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
     </div>
 </div>
 
-<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script>
     const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
 
@@ -245,13 +257,22 @@
             const fontSize = ref(14);
             const tableData = ref([]);
             
+            const getCellStyle = (row, colIndex) => {
+                if (!row || !row.styles || !row.styles[colIndex]) return {};
+                return row.styles[colIndex];
+            };
+            
             const isAmountManual = ref(false);
             const sortState = ref({ column: null, order: 'asc' });
 
             const resetView = async () => {
                 sortState.value = { column: null, order: 'asc' };
                 selectedRows.value = [];
-                await fetchData();
+                    await fetchData();
+                    
+                    toastMessage.value = `已刪除 ${undoData.deletedRows.length} 筆資料`;
+                    showToast.value = true;
+                    setTimeout(() => { showToast.value = false; }, 8000);
             };
 
             const sortBy = (column) => {
@@ -1019,21 +1040,39 @@
                 
                 const plainRows = plainText.split(/\r?\n/).map(r => r.split('\t')).filter(r => r.length > 0 && !(r.length === 1 && r[0] === ''));
                 let htmlBgData = [];
+                let htmlStylesData = [];
                 
                 if (htmlText) {
                     try {
                         const parser = new DOMParser();
                         const doc = parser.parseFromString(htmlText, 'text/html');
                         
-                        // Parse style block for yellow classes (Excel uses classes like .xl65)
-                        let yellowClasses = [];
+                        // Parse style block for classes
+                        let classStyles = {};
                         const styleTags = doc.querySelectorAll('style');
                         styleTags.forEach(style => {
                             const css = style.innerHTML;
-                            const regex = /\.([a-zA-Z0-9_-]+)\s*\{[^}]*background[^:]*:\s*(yellow|#ffff00|rgb\(255,\s*255,\s*0\)|#ff0)[^;}]*;/gi;
+                            const regex = /\.(\w+)\s*\{([^}]+)\}/g;
                             let match;
                             while ((match = regex.exec(css)) !== null) {
-                                yellowClasses.push(match[1]);
+                                const className = match[1];
+                                const rules = match[2].split(';');
+                                let styleObj = {};
+                                rules.forEach(rule => {
+                                    const parts = rule.split(':');
+                                    if (parts.length === 2) {
+                                        const prop = parts[0].trim();
+                                        const val = parts[1].trim();
+                                        if (prop.includes('background')) styleObj.backgroundColor = val;
+                                        if (prop.includes('border')) {
+                                            const jsProp = prop.replace(/-([a-z])/g, g => g[1].toUpperCase());
+                                            styleObj[jsProp] = val.replace(/windowtext/gi, 'black');
+                                        }
+                                        if (prop.includes('color')) styleObj.color = val;
+                                        if (prop.includes('font-weight')) styleObj.fontWeight = val;
+                                    }
+                                });
+                                classStyles[className] = styleObj;
                             }
                         });
 
@@ -1042,23 +1081,40 @@
                             const cells = rows[r].querySelectorAll('td, th');
                             if (cells.length === 0) continue;
                             let isClientData = false;
+                            let rowStyles = [];
                             
                             for (let c = 0; c < cells.length; c++) {
                                 const cell = cells[c];
+                                let cellStyle = {};
                                 
-                                // Check background
+                                // Merge from class
                                 const className = cell.className || '';
-                                if (yellowClasses.some(cls => className.includes(cls))) {
+                                className.split(' ').forEach(cls => {
+                                    if (classStyles[cls]) {
+                                        Object.assign(cellStyle, classStyles[cls]);
+                                    }
+                                });
+                                
+                                // Merge from inline
+                                const bg = cell.style.backgroundColor || cell.style.background || cell.getAttribute('bgcolor');
+                                if (bg) cellStyle.backgroundColor = bg;
+                                
+                                ['borderTop', 'borderBottom', 'borderLeft', 'borderRight', 'border'].forEach(prop => {
+                                    if (cell.style[prop]) {
+                                        cellStyle[prop] = cell.style[prop].replace(/windowtext/gi, 'black');
+                                    }
+                                });
+                                if (cell.style.fontWeight) cellStyle.fontWeight = cell.style.fontWeight;
+                                if (cell.style.color) cellStyle.color = cell.style.color;
+
+                                // Check yellow background for legacy is_client_data
+                                if (cellStyle.backgroundColor && (cellStyle.backgroundColor.includes('255, 255, 0') || cellStyle.backgroundColor.toLowerCase().includes('ffff00') || cellStyle.backgroundColor.toLowerCase() === 'yellow' || cellStyle.backgroundColor.includes('rgb(255, 255,'))) {
                                     isClientData = true;
                                 }
-                                const bg = cell.style.backgroundColor || cell.style.background || cell.getAttribute('bgcolor');
-                                if (bg) {
-                                    if (bg.includes('255, 255, 0') || bg.toLowerCase().includes('ffff00') || bg.toLowerCase() === 'yellow' || bg.includes('rgb(255, 255,')) {
-                                        isClientData = true;
-                                    }
-                                }
+                                rowStyles.push(cellStyle);
                             }
                             htmlBgData.push(isClientData);
+                            htmlStylesData.push(rowStyles);
                         }
                     } catch (err) {
                         console.error('Error parsing HTML paste:', err);
@@ -1085,6 +1141,7 @@
                 for (let r = 0; r < plainRows.length; r++) {
                     const rowVals = plainRows[r];
                     const isClientData = htmlBgData[r] || false;
+                    const rowStyles = htmlStylesData[r] || [];
                     
                     if (rowVals.length === 0 || (rowVals.length === 1 && rowVals[0] === '')) continue;
                     
@@ -1103,6 +1160,21 @@
 
                         if (isClientData) {
                             targetRow.is_client_data = true;
+                        }
+                        if (rowStyles.length > 0) {
+                            if (!targetRow.styles) targetRow.styles = [];
+                            // Ensure the array has enough elements
+                            while(targetRow.styles.length < fields.length) targetRow.styles.push({});
+                            
+                            // Align pasted styles with the columns
+                            for (let i = 0; i < rowStyles.length; i++) {
+                                if (startColIndex + i < fields.length) {
+                                    targetRow.styles[startColIndex + i] = rowStyles[i];
+                                }
+                            }
+                            
+                            // Force reactivity update in Vue by replacing the array reference
+                            targetRow.styles = [...targetRow.styles];
                         }
 
                         for (let c = 0; c < rowVals.length; c++) {
@@ -1171,26 +1243,38 @@
                 toastTimeout = setTimeout(() => { showToast.value = false; }, 10000);
             };
 
-            const undoPaste = async () => {
+            const undoAction = async () => {
                 if (!undoData) return;
                 showToast.value = false;
                 
-                // 1. Delete new rows
-                for (const id of undoData.newRowIds) {
-                    try {
-                        await fetch(`/api/waybills/${id}`, { method: 'DELETE' });
-                    } catch (e) { console.error(e); }
-                }
-                
-                // 2. Revert old rows
-                for (const oldRow of undoData.oldRows) {
-                    try {
-                        await fetch(`/api/waybills/${oldRow.id}`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                            body: JSON.stringify(oldRow)
-                        });
-                    } catch (e) { console.error(e); }
+                if (undoData.type === 'delete') {
+                    // Restore deleted rows by creating them again
+                    for (const row of undoData.deletedRows) {
+                        try {
+                            await fetch('/api/waybills', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                                body: JSON.stringify(row)
+                            });
+                        } catch (e) { console.error(e); }
+                    }
+                } else {
+                    // Default to undo paste behavior
+                    for (const id of undoData.newRowIds || []) {
+                        try {
+                            await fetch(`/api/waybills/${id}`, { method: 'DELETE' });
+                        } catch (e) { console.error(e); }
+                    }
+                    
+                    for (const oldRow of undoData.oldRows || []) {
+                        try {
+                            await fetch(`/api/waybills/${oldRow.id}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                                body: JSON.stringify(oldRow)
+                            });
+                        } catch (e) { console.error(e); }
+                    }
                 }
                 
                 undoData = null;
@@ -1213,6 +1297,13 @@
             
             const deleteSelected = async () => {
                 if (!confirm(`確定要刪除選取的 ${selectedRows.value.length} 筆資料嗎？`)) return;
+                
+                // Save rows to be deleted for undo functionality
+                const rowsToDelete = tableData.value.filter(row => selectedRows.value.includes(row.id));
+                undoData = {
+                    type: 'delete',
+                    deletedRows: rowsToDelete
+                };
                 
                 try {
                     let hasError = false;
@@ -1352,6 +1443,20 @@
                 resizer.addEventListener('mousedown', mouseDownHandler);
             };
 
+            const scrollToTop = () => {
+                window.scrollTo({
+                    top: 0,
+                    behavior: 'smooth'
+                });
+            };
+
+            const scrollToBottom = () => {
+                window.scrollTo({
+                    top: document.body.scrollHeight,
+                    behavior: 'smooth'
+                });
+            };
+
             const exportExcel = () => {
                 if (typeof XLSX === 'undefined') {
                     alert('Excel 匯出模組尚未載入完成，請稍後再試。');
@@ -1368,6 +1473,88 @@
                     '備註': row.remark
                 }));
                 const ws = XLSX.utils.json_to_sheet(wsData);
+             
+                // json_to_sheet puts headers at row 0. So data starts at row 1.
+                // Wait, if it's json_to_sheet, we can just say dataStartRow = 1
+             
+                
+                // Add styles
+                const range = XLSX.utils.decode_range(ws['!ref']);
+                for(let R = range.s.r; R <= range.e.r; ++R) {
+                    for(let C = range.s.c; C <= range.e.c; ++C) {
+                        const cell_address = {c:C, r:R};
+                        const cell_ref = XLSX.utils.encode_cell(cell_address);
+                        if(!ws[cell_ref]) ws[cell_ref] = {t:'s', v:''};
+                        
+                        if (!ws[cell_ref].s) ws[cell_ref].s = {};
+                                                ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12 };
+                    }
+                }
+                
+                // Find data rows and apply custom styles
+                let dataStartRow = -1;
+                for(let R = range.s.r; R <= range.e.r; ++R) {
+                    let isHeader = false;
+                    for(let C = range.s.c; C <= range.e.c; ++C) {
+                        const cell = ws[XLSX.utils.encode_cell({c:C, r:R})];
+                        if (cell && (cell.v === '重量' || cell.v === '件數' || cell.v === '運費')) {
+                            isHeader = true;
+                        }
+                    }
+                    if (isHeader) {
+                        dataStartRow = R + 1;
+                        break;
+                    }
+                }
+                
+                if (dataStartRow !== -1) {
+                    for (let i = 0; i < tableData.value.length; i++) {
+                        const rowData = tableData.value[i];
+                        const R = dataStartRow + i;
+                        for(let C = range.s.c; C <= range.e.c; ++C) {
+                            const cell_ref = XLSX.utils.encode_cell({c:C, r:R});
+                            if (!ws[cell_ref]) continue;
+                            if (!ws[cell_ref].s) ws[cell_ref].s = {};
+                            
+                            const cellStyleIndex = C - range.s.c; // Assuming columns map directly
+                            const customStyle = rowData.styles ? rowData.styles[cellStyleIndex] : null;
+                            
+                            if (customStyle) {
+                                // Background
+                                if (customStyle.backgroundColor) {
+                                    // simple hex conversion if needed, but rgb is tricky. 
+                                    // if it's already hex, use it. if rgb, we could try to convert, but let's just use FFFF00 if it has any yellow.
+                                    // SheetJS expects FFFF00 format.
+                                    let bg = customStyle.backgroundColor;
+                                    if (bg.includes('255, 255, 0') || bg.toLowerCase().includes('ffff00') || bg.toLowerCase() === 'yellow' || bg.includes('rgb(255, 255,')) {
+                                        ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "FFFF00" } };
+                                    } else {
+                                        // Try to extract hex
+                                        const hexMatch = bg.match(/#([0-9a-fA-F]{6})/);
+                                        if (hexMatch) {
+                                            ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: hexMatch[1].toUpperCase() } };
+                                        }
+                                    }
+                                }
+                                // Border
+                                if (!ws[cell_ref].s.border) ws[cell_ref].s.border = {};
+                                ['top', 'bottom', 'left', 'right'].forEach(dir => {
+                                    const jsProp = 'border' + dir.charAt(0).toUpperCase() + dir.slice(1);
+                                    if (customStyle[jsProp] || customStyle.border) {
+                                        const b = customStyle[jsProp] || customStyle.border;
+                                        // Export borders mapping
+                                        if (b.includes('thick') || b.includes('medium') || b.includes('2px') || b.includes('3px') || b.includes('1.5pt') || b.includes('2pt')) {
+                                            ws[cell_ref].s.border[dir] = { style: "medium", color: { rgb: "000000" } };
+                                        } else if (b.includes('thin') || b.includes('.5pt') || b.includes('1px') || b.includes('solid')) {
+                                            ws[cell_ref].s.border[dir] = { style: "thin", color: { rgb: "000000" } };
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+                
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "運費明細");
                 XLSX.writeFile(wb, "欣華運費明細.xlsx");
@@ -1386,8 +1573,11 @@
                 deleteRow,
                 handleArrowKeys,
                 handlePaste,
+                scrollToTop,
+                scrollToBottom,
                 exportExcel,
-                undoPaste,
+                getCellStyle,
+                undoAction,
                 clearAllData,
                 selectedRows,
                 isAllSelected,
@@ -1401,7 +1591,7 @@
                 isFillHighlighted,
                 showToast,
                 toastMessage,
-                undoPaste,
+                undoAction,
                 handleRemarkChange,
                 previewFreight
             };

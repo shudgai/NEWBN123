@@ -28,6 +28,7 @@ class WaybillController extends Controller
             'is_client_data' => 'nullable|boolean',
             'client_code' => 'nullable|string',
             'forklift_fee' => 'nullable|integer',
+            'styles' => 'nullable|array',
         ]);
 
         $waybill = Waybill::create($validated);
@@ -51,6 +52,7 @@ class WaybillController extends Controller
             'is_client_data' => 'nullable|boolean',
             'client_code' => 'nullable|string',
             'forklift_fee' => 'nullable|integer',
+            'styles' => 'nullable|array',
         ]);
 
         $waybill->update($validated);

@@ -154,7 +154,7 @@
             </thead>
             <tbody @paste="handlePaste">
                 <!-- Data Rows -->
-                <tr v-for="(row, index) in tableData" :key="row.id || index" :data-id="row.id" class="border-b border-gray-300" :class="{'bg-yellow-200': row.is_client_data, 'hover:bg-yellow-50': !row.is_client_data}">
+                <tr v-for="(row, index) in tableData" :key="row.id || index" :data-id="row.id" class="border-b border-gray-300 hover:bg-gray-50">
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'date')}" :style="getCellStyle(row, 0)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.date" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'date', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'client_name')}" :style="getCellStyle(row, 1)"><input list="client-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.client_name" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'client_name', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'bill_no')}" :style="getCellStyle(row, 2)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.bill_no" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'bill_no', $event)"></div></td>
@@ -1290,14 +1290,11 @@
                         const cellStyleIndex = C - range.s.c;
                         const customStyle = rowData.styles ? rowData.styles[cellStyleIndex] : null;
                         
-                        // Force yellow background if row is marked as client data
-                        if (rowData.is_client_data) {
-                            ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "FFFF00" } };
-                        }
+
                         
                         if (customStyle) {
                             // Background
-                            if (customStyle.backgroundColor && !rowData.is_client_data) {
+                            if (customStyle.backgroundColor) {
                                 let bg = customStyle.backgroundColor;
                                 if (bg.includes('255, 255, 0') || bg.toLowerCase().includes('ffff00') || bg.toLowerCase() === 'yellow' || bg.includes('rgb(255, 255,')) {
                                     ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "FFFF00" } };

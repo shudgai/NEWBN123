@@ -29,6 +29,10 @@ Route::get('/client/276', function () {
     return view('client_276');
 });
 
+Route::get('/client/282', function () {
+    return view('client_282');
+});
+
 Route::get('/client/444', function () {
     return view('client_444');
 });
@@ -36,6 +40,9 @@ Route::get('/client/444', function () {
 Route::get('/client/639', function () {
     return view('client_639');
 });
+
+Route::get('/merge-excel', [\App\Http\Controllers\MergeExcelController::class, 'index']);
+Route::post('/merge-excel', [\App\Http\Controllers\MergeExcelController::class, 'merge']);
 
 Auth::routes();
 

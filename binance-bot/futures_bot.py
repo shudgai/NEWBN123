@@ -367,8 +367,8 @@ async def watch_kline_and_strategy():
             deviation = (close_price - middle_band) / middle_band
             
             # 雙向策略：跌破買入(做多)，漲破賣出(做空)
-            # 增強精準度：要求偏離大於 0.07% (0.0007) 且搭配 RSI 超買超賣指標
-            if deviation <= -0.0007 and current_rsi < 40.0:
+            # 衝鋒槍模式：要求偏離大於 0.055% (0.00055) 且搭配 RSI 超買超賣指標
+            if deviation <= -0.00055 and current_rsi < 45.0:
                 if macro_regime == "熊市 (大趨勢偏空)":
                     pass # 熊市不逆勢做多
                 else:
@@ -377,7 +377,7 @@ async def watch_kline_and_strategy():
                         last_buy_time = current_time
                         print(f"⚠️ [策略訊號] RSI 超賣({current_rsi:.1f}) 且低於均線！偏離: {deviation*100:.3f}%，觸發做多(Long)")
                         asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
-            elif deviation >= 0.0007 and current_rsi > 60.0:
+            elif deviation >= 0.00055 and current_rsi > 55.0:
                 if macro_regime == "牛市 (大趨勢偏多)":
                     pass # 牛市不逆勢做空
                 else:

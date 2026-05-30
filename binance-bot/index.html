@@ -277,14 +277,14 @@
         .log-header-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
         .log-clear { font-size: 10px; color: var(--primary); cursor: pointer; }
         .log-console {
-            font-family: 'JetBrains Mono'; font-size: 11px; color: #a9dfbf;
+            font-family: 'JetBrains Mono'; font-size: 11px; color: #ffffff;
             height: 110px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;
             scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
         }
         .log-console::-webkit-scrollbar { width: 3px; }
         .log-console::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
         .log-time { color: var(--text-muted); margin-right: 5px; }
-        .log-info { color: #5dade2; }
+        .log-info { color: #ffffff; }
         .log-warning { color: #f4d03f; }
         .log-danger { color: var(--danger); }
         .log-success { color: var(--success); }
@@ -989,7 +989,7 @@ createApp({
             fetchTrades();
             loadKlines();
             initWebSocket();
-            fetch(`${API_BASE}/bot-status/set-symbol/SOLUSDT`, { method: 'POST' });
+            fetch(`${API_BASE}/bot-status/set-symbol/${activeSymbol.value}`, { method: 'POST' });
             fetchBackendLogs();
 
             statusInterval   = setInterval(fetchBotStatus, 5000);

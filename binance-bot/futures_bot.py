@@ -101,6 +101,9 @@ async def get_base_amount(amt_usd):
     return amt_usd / price
 
 simulated_base_amt = 0.0
+latest_ws_price = 0.0
+current_pos_qty = 0.0
+current_pos_avg = 0.0
 
 async def initialize_simulated_position():
     global simulated_base_amt
@@ -213,6 +216,29 @@ async def execute_order_and_risk(side, price):
         if PAPER_TRADING:
             simulated_base_amt = 0.0
 
+async def update_position_info():
+    global current_pos_qty, current_pos_avg
+    while True:
+        try:
+            if PAPER_TRADING:
+                import json
+                try:
+                    with open("paper_state.json", "r") as f:
+                        state = json.load(f)
+                        pos = state.get("positions", {}).get(symbol.replace('/', ''), {})
+                        current_pos_qty = float(pos.get("qty", 0.0))
+                        current_pos_avg = float(pos.get("avg_price", 0.0))
+                except:
+                    pass
+            else:
+                positions = await exchange.fetch_positions([symbol])
+                if positions:
+                    p = positions[0]
+                    current_pos_qty = float(p.get('info', {}).get('positionAmt', 0.0))
+                    current_pos_avg = float(p.get('entryPrice', 0.0))
+            await asyncio.sleep(1.0)
+        except Exception as e:
+            await asyncio.sleep(1.0)
 
 async def close_entire_position(close_side, actual_close_amt, current_p, pos_avg):
     global simulated_base_amt
@@ -272,24 +298,28 @@ async def monitor_position_tp_sl():
             tp_pct = MIN_TP_PCT
             sl_pct = MIN_SL_PCT
             
-            if pos_qty > 0: # 多單
-                tp_price = pos_avg * (1 + tp_pct)
-                sl_price = pos_avg * (1 - sl_pct)
+            if current_pos_qty > 0: # 多單
+                tp_price = current_pos_avg * (1 + tp_pct)
+                sl_price = current_pos_avg * (1 - sl_pct)
                 if current_p >= tp_price:
-                    print(f"🎯 [全局止盈] 多單均價 {pos_avg:.4f}，現價 {current_p} >= 目標 {tp_price:.4f}，市價全平！")
-                    await close_entire_position('sell', abs(pos_qty), current_p, pos_avg)
+                    print(f"🎯 [全局止盈] 多單均價 {current_pos_avg:.4f}，現價 {current_p} >= 目標 {tp_price:.4f}，市價全平！")
+                    await close_entire_position('sell', abs(current_pos_qty), current_p, current_pos_avg)
+                    current_pos_qty = 0.0 # 避免重複觸發
                 elif current_p <= sl_price:
-                    print(f"🛑 [全局止損] 多單均價 {pos_avg:.4f}，現價 {current_p} <= 觸發 {sl_price:.4f}，市價全平！")
-                    await close_entire_position('sell', abs(pos_qty), current_p, pos_avg)
+                    print(f"🛑 [全局止損] 多單均價 {current_pos_avg:.4f}，現價 {current_p} <= 觸發 {sl_price:.4f}，市價全平！")
+                    await close_entire_position('sell', abs(current_pos_qty), current_p, current_pos_avg)
+                    current_pos_qty = 0.0 # 避免重複觸發
             else: # 空單
-                tp_price = pos_avg * (1 - tp_pct)
-                sl_price = pos_avg * (1 + sl_pct)
+                tp_price = current_pos_avg * (1 - tp_pct)
+                sl_price = current_pos_avg * (1 + sl_pct)
                 if current_p <= tp_price:
-                    print(f"🎯 [全局止盈] 空單均價 {pos_avg:.4f}，現價 {current_p} <= 目標 {tp_price:.4f}，市價全平！")
-                    await close_entire_position('buy', abs(pos_qty), current_p, pos_avg)
+                    print(f"🎯 [全局止盈] 空單均價 {current_pos_avg:.4f}，現價 {current_p} <= 目標 {tp_price:.4f}，市價全平！")
+                    await close_entire_position('buy', abs(current_pos_qty), current_p, current_pos_avg)
+                    current_pos_qty = 0.0 # 避免重複觸發
                 elif current_p >= sl_price:
-                    print(f"🛑 [全局止損] 空單均價 {pos_avg:.4f}，現價 {current_p} >= 觸發 {sl_price:.4f}，市價全平！")
-                    await close_entire_position('buy', abs(pos_qty), current_p, pos_avg)
+                    print(f"🛑 [全局止損] 空單均價 {current_pos_avg:.4f}，現價 {current_p} >= 觸發 {sl_price:.4f}，市價全平！")
+                    await close_entire_position('buy', abs(current_pos_qty), current_p, current_pos_avg)
+                    current_pos_qty = 0.0 # 避免重複觸發
                     
         except Exception as e:
             pass # 忽略異常並重試
@@ -418,8 +448,8 @@ async def watch_kline_and_strategy():
                 return
 
             # 順勢突破策略：漲破追多，跌破追空
-            # 衝鋒槍模式：要求偏離大於 0.055% (0.00055) 且搭配 RSI 強弱指標
-            if deviation >= 0.00055 and current_rsi > 55.0:
+            # 用戶指定：0.2% (0.002) 獵槍模式 且搭配 RSI 強弱指標
+            if deviation >= 0.002 and current_rsi > 55.0:
                 if "熊市" in macro_regime:
                     pass # 熊市不逆勢做多
                 else:
@@ -428,7 +458,7 @@ async def watch_kline_and_strategy():
                         last_buy_time = current_time
                         print(f"⚠️ [策略訊號] 順勢突破！RSI 強勢({current_rsi:.1f}) 且高於均線！偏離: {deviation*100:.3f}%，觸發追多(Long)")
                         asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
-            elif deviation <= -0.00055 and current_rsi < 45.0:
+            elif deviation <= -0.002 and current_rsi < 45.0:
                 if "牛市" in macro_regime:
                     pass # 牛市不逆勢做空
                 else:
@@ -488,6 +518,7 @@ async def main():
     # 同時併發運行兩大行情模組與全局監控
     await asyncio.gather(
         check_account_safety(),
+        update_position_info(),
         watch_kline_and_strategy(),
         watch_trades_and_order_book(),
         monitor_macro_trend(),

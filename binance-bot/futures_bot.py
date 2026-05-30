@@ -318,18 +318,18 @@ async def watch_kline_and_strategy():
             deviation = (close_price - middle_band) / middle_band
             
             # 雙向策略：跌破買入(做多)，漲破賣出(做空)
-            # 增強精準度：要求偏離大於 0.1% (0.001) 且搭配 RSI 超買超賣指標
-            if deviation <= -0.001 and current_rsi < 35.0:
+            # 增強精準度：要求偏離大於 0.07% (0.0007) 且搭配 RSI 超買超賣指標
+            if deviation <= -0.0007 and current_rsi < 40.0:
                 current_time = time.time()
                 if current_time - last_buy_time > 30: # 30 秒冷卻時間
                     last_buy_time = current_time
-                    print(f"⚠️ [策略訊號] RSI 超賣({current_rsi:.1f}) 且低於均線！偏離: {deviation*100:.3f}%，精準觸發做多(Long)")
+                    print(f"⚠️ [策略訊號] RSI 超賣({current_rsi:.1f}) 且低於均線！偏離: {deviation*100:.3f}%，觸發做多(Long)")
                     asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
-            elif deviation >= 0.001 and current_rsi > 65.0:
+            elif deviation >= 0.0007 and current_rsi > 60.0:
                 current_time = time.time()
                 if current_time - last_buy_time > 30: # 共用冷卻時間
                     last_buy_time = current_time
-                    print(f"⚠️ [策略訊號] RSI 超買({current_rsi:.1f}) 且高於均線！偏離: {deviation*100:.3f}%，精準觸發做空(Short)")
+                    print(f"⚠️ [策略訊號] RSI 超買({current_rsi:.1f}) 且高於均線！偏離: {deviation*100:.3f}%，觸發做空(Short)")
                     asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
                 
         except Exception as e:

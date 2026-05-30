@@ -61,7 +61,7 @@
         /* ── THREE-COLUMN LAYOUT ───────────────────── */
         .main-layout {
             display: grid;
-            grid-template-columns: 280px 1fr 420px;
+            grid-template-columns: 300px 1fr 380px; /* Right panel widened to narrow the middle to ~85% */
             gap: 0;
             height: calc(100vh - 54px);
         }
@@ -81,16 +81,18 @@
             scrollbar-color: rgba(255,255,255,0.1) transparent;
         }
         
-        /* First right panel goes to left */
+        /* First right panel (Controls) goes to far right */
         .main-layout > .right-panel:nth-of-type(2) {
-            order: 1;
-            border-right: 1px solid var(--border-color);
-        }
-        
-        /* Second right panel goes to far right */
-        .main-layout > .right-panel:nth-of-type(3) {
             order: 3;
             border-left: 1px solid var(--border-color);
+            border-right: none;
+        }
+        
+        /* Second right panel (Logs/History) goes to left */
+        .main-layout > .right-panel:nth-of-type(3) {
+            order: 1;
+            border-right: 1px solid var(--border-color);
+            border-left: none;
         }
 
         /* Coin selector strip */
@@ -463,34 +465,7 @@
         <!-- ══ FAR RIGHT PANEL ══════════════════════════════ -->
         <div class="right-panel">
 
-            <!-- Trade history -->
-            <div class="card">
-                <span class="section-title">📜 歷史交易 ({{ activeCoin?.name }}/{{ getQuoteAsset() }})</span>
-                <div style="max-height:220px; overflow-y:auto;">
-                    <table class="trades-table">
-                        <thead>
-                            <tr><th>時間</th><th>類型</th><th>成交價</th><th>數量</th><th>盈虧</th></tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="t in trades" :key="t.id">
-                                <td>{{ formatTradeTime(t.time) }}</td>
-                                <td><span :class="['badge', t.is_buyer ? 'buy' : 'sell']">{{ t.is_buyer ? 'BUY' : 'SELL' }}</span></td>
-                                <td>{{ formatCurrencyVal(t.price) }}</td>
-                                <td>{{ t.qty.toFixed(5) }}</td>
-                                <td>
-                                    <span v-if="t.pnl !== null && t.pnl !== undefined" :class="t.pnl > 0 ? 'up' : t.pnl < 0 ? 'down' : ''">
-                                        {{ t.pnl > 0 ? '+' : '' }}{{ t.pnl.toFixed(2) }}
-                                    </span>
-                                    <span v-else>-</span>
-                                </td>
-                            </tr>
-                            <tr v-if="trades.length === 0">
-                                <td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px;">尚無交易紀錄</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            <!-- Trade history (Removed) -->
 
             <!-- System console -->
             <div class="log-console-wrap">
@@ -546,7 +521,7 @@ createApp({
             { symbol: 'XRPUSDT', name: 'XRP', label: '瑞波幣', price: 0, prevPrice: 0, priceClass: '' },
             { symbol: 'PEPEUSDT', name: 'PEPE', label: '佩佩蛙', price: 0, prevPrice: 0, priceClass: '' },
         ]);
-        const activeSymbol = ref('SOLUSDT');
+        const activeSymbol = ref(localStorage.getItem('activeSymbol') || 'SUIUSDT');
 
         const bot = ref({ is_running: false, strategy: '-', balance_quote: 0, active_orders: 0 });
 
@@ -779,6 +754,7 @@ createApp({
                 return;
             }
             activeSymbol.value = symbol;
+            localStorage.setItem('activeSymbol', symbol);
             addLog(`切換監聽: ${coins.value.find(c => c.symbol === symbol)?.name}`);
             fetchPosition(); fetchTrades(); loadKlines();
             try { await fetch(`${API_BASE}/bot-status/set-symbol/${symbol}`, { method: 'POST' }); } catch(e) {}

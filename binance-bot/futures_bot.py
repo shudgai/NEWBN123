@@ -52,8 +52,8 @@ ATR_PERIOD = 14                       # ATR 計算週期
 ORDER_BOOK_THRESHOLD_USD = 100000.0   # 盤口大單追蹤門檻 (10萬美金)
 ATR_TP_MULTIPLIER = 0.0       # 取消動態放大，只求最快平倉
 ATR_SL_MULTIPLIER = 1.5       # 止損距離 (ATR 倍數)
-MIN_TP_PCT = 0.0015      # 最小止盈 0.12% (0.1%手續費 + 0.02%微薄利潤)
-MIN_SL_PCT = 0.008         # 最小止損 0.8%             # 最低止損 0.8%
+MIN_TP_PCT = 0.003       # 最小止盈 0.3%
+MIN_SL_PCT = 0.008         # 最小止損 0.8%
 current_atr = 0.0                         # 當前 ATR 值（由 K線模組更新）
 RSI_PERIOD = 14                           # RSI 計算週期
 RSI_OVERBOUGHT = 70                       # RSI 超買門檻（高於此不買入）
@@ -162,7 +162,7 @@ async def execute_order_and_risk(side, price):
         
         if PAPER_TRADING:
             avg_price = price
-            actual_received_amt = base_amt * 0.999
+            actual_received_amt = base_amt
             if side == 'buy':
                 simulated_base_amt += actual_received_amt
             else:
@@ -222,18 +222,14 @@ async def execute_order_and_risk(side, price):
             close_side = 'sell' if simulated_base_amt > 0 else 'buy'
             actual_close_amt = abs(simulated_base_amt)
             
-            # 計算未扣手續費的原始盈虧
+            # 計算原始盈虧 (手續費統一由 update_paper_state 扣除)
             if simulated_base_amt > 0: # Long close
-                raw_pnl = (current_p - simulated_avg_price) * actual_close_amt
+                close_pnl = (current_p - simulated_avg_price) * actual_close_amt
             else: # Short close
-                raw_pnl = (simulated_avg_price - current_p) * actual_close_amt
+                close_pnl = (simulated_avg_price - current_p) * actual_close_amt
                 
-            # 模擬合約手續費 (開平倉雙向共約 0.1%)
-            fee = (current_p * actual_close_amt) * 0.001
-            close_pnl = raw_pnl - fee
-            
             simulated_base_amt = 0.0
-            print(f"✅ [模擬平倉成功] 已成功平倉！剩餘模擬總倉位: {simulated_base_amt:.6f} | 淨盈虧(已扣手續費): {close_pnl:.4f} USDT")
+            print(f"✅ [模擬平倉成功] 已成功平倉！剩餘模擬總倉位: {simulated_base_amt:.6f} | 盈虧(手續費由底層扣除): {close_pnl:.4f} USDT")
             update_paper_state(symbol.replace('/', ''), close_side, current_p, actual_close_amt, is_close=True, pnl=close_pnl)
         else:
             close_side = 'sell' if side == 'buy' else 'buy'
@@ -322,17 +318,18 @@ async def watch_kline_and_strategy():
             deviation = (close_price - middle_band) / middle_band
             
             # 雙向策略：跌破買入(做多)，漲破賣出(做空)
-            if deviation <= -0.0005:
+            # 增強精準度：要求偏離大於 0.1% (0.001) 且搭配 RSI 超買超賣指標
+            if deviation <= -0.001 and current_rsi < 35.0:
                 current_time = time.time()
                 if current_time - last_buy_time > 30: # 30 秒冷卻時間
                     last_buy_time = current_time
-                    print(f"⚠️ [策略訊號] 價格低於均線 0.05%！偏離: {deviation*100:.3f}%，觸發做多(Long)")
+                    print(f"⚠️ [策略訊號] RSI 超賣({current_rsi:.1f}) 且低於均線！偏離: {deviation*100:.3f}%，精準觸發做多(Long)")
                     asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
-            elif deviation >= 0.0005:
+            elif deviation >= 0.001 and current_rsi > 65.0:
                 current_time = time.time()
                 if current_time - last_buy_time > 30: # 共用冷卻時間
                     last_buy_time = current_time
-                    print(f"⚠️ [策略訊號] 價格高於均線 0.05%！偏離: {deviation*100:.3f}%，觸發做空(Short)")
+                    print(f"⚠️ [策略訊號] RSI 超買({current_rsi:.1f}) 且高於均線！偏離: {deviation*100:.3f}%，精準觸發做空(Short)")
                     asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
                 
         except Exception as e:

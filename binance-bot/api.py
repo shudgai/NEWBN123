@@ -62,11 +62,11 @@ def add_system_log(text: str, level: str = "info"):
 # 模擬交易機器人狀態
 bot_status = {
     "is_running": False,
-    "strategy": "MA Deviation (15 USDT)",
+    "strategy": "MA Deviation (30 USDT)",
     "balance_quote": 150.0,
     "active_orders": 0,
     "active_symbol": "SOLUSDT",
-    "trade_amount": 15.0,
+    "trade_amount": 30.0,
 }
 
 bot_process = None
@@ -229,7 +229,13 @@ def market_sell(symbol: str):
                 
                 sym = symbol.upper()
                 positions = state.get("positions", {})
-                pos = positions.get(sym) or positions.get(f"{sym}:USDT") or {}
+                
+                active_sym = f"{sym}:USDT"
+                pos = positions.get(active_sym)
+                if pos is None or (pos.get("qty", 0.0) == 0.0 and sym in positions and positions[sym].get("qty", 0.0) != 0.0):
+                    pos = positions.get(sym) or {}
+                    active_sym = sym
+                    
                 qty = float(pos.get("qty", 0.0))
                 
                 if abs(qty) > 0:
@@ -243,7 +249,7 @@ def market_sell(symbol: str):
                     close_side = "sell" if qty > 0 else "buy"
                     
                     # 更新虛擬帳本
-                    update_paper_state(symbol.upper(), close_side, current_price, abs(qty), is_close=True, pnl=pnl)
+                    update_paper_state(active_sym, close_side, current_price, abs(qty), is_close=True, pnl=pnl)
                     
                     # 重啟機器人以清除記憶體中的孤兒倉位
                     global bot_process
@@ -256,7 +262,7 @@ def market_sell(symbol: str):
                         bot_process = subprocess.Popen([
                             sys.executable, "futures_bot.py",
                             "--symbol", f"{symbol.replace('USDT', '')}/USDT:USDT",
-                            "--amount", str(bot_status.get("trade_amount", 15.0))
+                            "--amount", str(bot_status.get("trade_amount", 30.0))
                         ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                         
                     return {"status": "success", "detail": f"模擬平倉成功！獲利 {pnl:.2f} USDT"}
@@ -341,7 +347,12 @@ def get_position(symbol: str):
                 
                 sym = symbol.upper()
                 positions = state.get("positions", {})
-                pos = positions.get(sym) or positions.get(f"{sym}:USDT") or {}
+                
+                # 優先拿 :USDT 後綴的倉位 (因為目前合約都用這個後綴)
+                # 如果沒有，才拿原本的
+                pos = positions.get(f"{sym}:USDT")
+                if pos is None or (pos.get("qty", 0.0) == 0.0 and sym in positions and positions[sym].get("qty", 0.0) != 0.0):
+                    pos = positions.get(sym) or {}
                 
                 qty = float(pos.get("qty", 0.0))
                 avg_price = float(pos.get("avg_price", 0.0))

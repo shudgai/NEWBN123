@@ -57,6 +57,10 @@ def update_paper_state(symbol, side, price, qty, is_close=False, pnl=0.0):
         pos["qty"] = new_qty
         pos["realized_pnl"] += pnl
         state["balance_usdt"] += pnl
+        
+    # 統一扣除手續費 (開平倉皆適用 Binance taker fee 0.05%)
+    fee = (price * abs(qty)) * 0.0005
+    state["balance_usdt"] -= fee
 
     state["positions"][symbol] = pos
     

@@ -52,12 +52,13 @@ ATR_PERIOD = 14                       # ATR 計算週期
 ORDER_BOOK_THRESHOLD_USD = 100000.0   # 盤口大單追蹤門檻 (10萬美金)
 ATR_TP_MULTIPLIER = 0.0       # 取消動態放大，只求最快平倉
 ATR_SL_MULTIPLIER = 1.5       # 止損距離 (ATR 倍數)
-MIN_TP_PCT = 0.003       # 最小止盈 0.3%
+MIN_TP_PCT = 0.0015      # 最小止盈 0.15% (更敏感)
 MIN_SL_PCT = 0.008         # 最小止損 0.8%
 current_atr = 0.0                         # 當前 ATR 值（由 K線模組更新）
 RSI_PERIOD = 14                           # RSI 計算週期
 RSI_OVERBOUGHT = 70                       # RSI 超買門檻（高於此不買入）
 current_rsi = 50.0                        # 當前 RSI 值
+macro_regime = "猴市 (區間震盪)"          # 全局大趨勢狀態
 
 # 🎯 物理防火牆：每日最大虧損限額設定
 INITIAL_BALANCE = 80.0                    # 你的總本金 80 USDT
@@ -181,72 +182,8 @@ async def execute_order_and_risk(side, price):
             avg_price = open_order.get('average') or price
             print(f"✅ [下單模組] {direction_str} 開倉成功！實際成交均價: {avg_price} | 單號: {open_order['id']}")
         
-        # 4. 動態計算止盈與止損點位
-        atr_pct = (current_atr / avg_price) if current_atr > 0 else MIN_TP_PCT
-        tp_pct = max(MIN_TP_PCT, ATR_TP_MULTIPLIER * atr_pct)
-        sl_pct = max(MIN_SL_PCT, ATR_SL_MULTIPLIER * atr_pct)
-        
-        if side == 'buy':
-            tp_price = avg_price * (1 + tp_pct)
-            sl_price = avg_price * (1 - sl_pct)
-        else:
-            tp_price = avg_price * (1 - tp_pct)
-            sl_price = avg_price * (1 + sl_pct)
-        
-        print(f"🛡️ [風控模組] 當前 ATR: {current_atr:.6f} ({atr_pct*100:.2f}%) | RSI: {current_rsi:.1f}")
-        print(f"   📈 動態止盈目標價: {tp_price:.2f} ({tp_pct*100:.2f}%)")
-        print(f"   📉 動態止損觸發價: {sl_price:.2f} ({sl_pct*100:.2f}%)")
-        
-        # 5. 在本地進行迴圈監控
-        while True:
-            await asyncio.sleep(2)
-            ticker = await exchange.fetch_ticker(symbol)
-            current_p = ticker['last']
-            if side == 'buy':
-                if current_p >= tp_price:
-                    print(f"🎯 [止盈觸發] 多單獲利！目前價格 {current_p} >= {tp_price}")
-                    break
-                elif current_p <= sl_price:
-                    print(f"🛑 [止損觸發] 多單停損！目前價格 {current_p} <= {sl_price}")
-                    break
-            else:
-                if current_p <= tp_price:
-                    print(f"🎯 [止盈觸發] 空單獲利！目前價格 {current_p} <= {tp_price}")
-                    break
-                elif current_p >= sl_price:
-                    print(f"🛑 [止損觸發] 空單停損！目前價格 {current_p} >= {sl_price}")
-                    break
-                
-        # 6. 執行平倉 (只平掉這顆子彈的份額)
-        if PAPER_TRADING:
-            close_side = 'sell' if simulated_base_amt > 0 else 'buy'
-            actual_close_amt = abs(simulated_base_amt)
-            
-            # 計算原始盈虧 (手續費統一由 update_paper_state 扣除)
-            if simulated_base_amt > 0: # Long close
-                close_pnl = (current_p - simulated_avg_price) * actual_close_amt
-            else: # Short close
-                close_pnl = (simulated_avg_price - current_p) * actual_close_amt
-                
-            simulated_base_amt = 0.0
-            print(f"✅ [模擬平倉成功] 已成功平倉！剩餘模擬總倉位: {simulated_base_amt:.6f} | 盈虧(手續費由底層扣除): {close_pnl:.4f} USDT")
-            update_paper_state(symbol.replace('/', ''), close_side, current_p, actual_close_amt, is_close=True, pnl=close_pnl)
-        else:
-            close_side = 'sell' if side == 'buy' else 'buy'
-            close_action = "賣出平多" if close_side == 'sell' else "買入平空"
-            print(f"🛒 [下單模組] 發送【市價單】{close_action}對應倉位...")
-            target_close_amount = base_amt * 0.999
-            try:
-                close_order = await exchange.create_order(
-                    symbol=symbol,
-                    type='market',
-                    side=close_side,
-                    amount=target_close_amount,
-                    params={'reduceOnly': True}
-                )
-                print(f"✅ [平倉成功] 已成功{close_action}！數量: {target_close_amount:.6f} | 單號: {close_order['id']}\n")
-            except Exception as e:
-                print(f"⚠️ [平倉失敗] 餘額不足或倉位已被其他網格平掉: {e}")
+        # 4. 只負責執行開倉，TP/SL 由 monitor_position_tp_sl 全局監控負責
+        # print(f"🛡️ [風控模組] 已開倉！等待全局風控引擎接手監控。")
             
     except Exception as e:
         print(f"🚨 [下單/風控模組嚴重致命錯誤]: {e}")
@@ -254,9 +191,121 @@ async def execute_order_and_risk(side, price):
             simulated_base_amt = 0.0
 
 
+async def close_entire_position(close_side, actual_close_amt, current_p, pos_avg):
+    global simulated_base_amt
+    if PAPER_TRADING:
+        close_pnl = (current_p - pos_avg) * actual_close_amt if close_side == 'sell' else (pos_avg - current_p) * actual_close_amt
+        simulated_base_amt = 0.0
+        print(f"✅ [模擬平倉成功] 全倉已平！盈虧: {close_pnl:.4f} USDT")
+        update_paper_state(symbol.replace('/', ''), close_side, current_p, actual_close_amt, is_close=True, pnl=close_pnl)
+    else:
+        close_action = "賣出平多" if close_side == 'sell' else "買入平空"
+        try:
+            close_order = await exchange.create_order(
+                symbol=symbol,
+                type='market',
+                side=close_side,
+                amount=actual_close_amt,
+                params={'reduceOnly': True}
+            )
+            print(f"✅ [全局平倉成功] 已成功{close_action}！數量: {actual_close_amt:.6f}")
+        except Exception as e:
+            print(f"⚠️ [全局平倉失敗]: {e}")
+
+async def monitor_position_tp_sl():
+    """ 獨立的全局倉位監控任務，根據整體持倉均價進行市價平倉 """
+    while True:
+        try:
+            await asyncio.sleep(0.5)
+            
+            # 1. 抓取全局倉位
+            pos_qty = 0.0
+            pos_avg = 0.0
+            if PAPER_TRADING:
+                import json
+                try:
+                    with open("paper_state.json", "r") as f:
+                        state = json.load(f)
+                        pos = state.get("positions", {}).get(symbol.replace('/', ''), {})
+                        pos_qty = float(pos.get("qty", 0.0))
+                        pos_avg = float(pos.get("avg_price", 0.0))
+                except:
+                    pass
+            else:
+                positions = await exchange.fetch_positions([symbol])
+                if positions:
+                    p = positions[0]
+                    pos_qty = float(p.get('info', {}).get('positionAmt', 0.0))
+                    pos_avg = float(p.get('entryPrice', 0.0))
+            
+            if abs(pos_qty) <= 0.000001 or pos_avg <= 0:
+                continue
+                
+            # 2. 獲取現價
+            ticker = await exchange.fetch_ticker(symbol)
+            current_p = ticker['last']
+            
+            # 3. 判斷全局 TP/SL
+            tp_pct = MIN_TP_PCT
+            sl_pct = MIN_SL_PCT
+            
+            if pos_qty > 0: # 多單
+                tp_price = pos_avg * (1 + tp_pct)
+                sl_price = pos_avg * (1 - sl_pct)
+                if current_p >= tp_price:
+                    print(f"🎯 [全局止盈] 多單均價 {pos_avg:.4f}，現價 {current_p} >= 目標 {tp_price:.4f}，市價全平！")
+                    await close_entire_position('sell', abs(pos_qty), current_p, pos_avg)
+                elif current_p <= sl_price:
+                    print(f"🛑 [全局止損] 多單均價 {pos_avg:.4f}，現價 {current_p} <= 觸發 {sl_price:.4f}，市價全平！")
+                    await close_entire_position('sell', abs(pos_qty), current_p, pos_avg)
+            else: # 空單
+                tp_price = pos_avg * (1 - tp_pct)
+                sl_price = pos_avg * (1 + sl_pct)
+                if current_p <= tp_price:
+                    print(f"🎯 [全局止盈] 空單均價 {pos_avg:.4f}，現價 {current_p} <= 目標 {tp_price:.4f}，市價全平！")
+                    await close_entire_position('buy', abs(pos_qty), current_p, pos_avg)
+                elif current_p >= sl_price:
+                    print(f"🛑 [全局止損] 空單均價 {pos_avg:.4f}，現價 {current_p} >= 觸發 {sl_price:.4f}，市價全平！")
+                    await close_entire_position('buy', abs(pos_qty), current_p, pos_avg)
+                    
+        except Exception as e:
+            pass # 忽略異常並重試
+
 # =====================================================================
 # ① 行情接收模組 & ② 策略邏輯模組
 # =====================================================================
+async def monitor_macro_trend():
+    """ 週期性檢查 1H 級別的 20T 均線，判斷大趨勢 (牛/熊/猴) """
+    global macro_regime
+    while True:
+        try:
+            # 抓取 1 小時 K 線 (最新 30 根)
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe='1h', limit=30)
+            if len(ohlcv) >= 20:
+                closes = np.array([x[4] for x in ohlcv])
+                current_price = closes[-1]
+                sma_20 = np.mean(closes[-20:])
+                
+                # 計算偏離度
+                deviation = (current_price - sma_20) / sma_20
+                
+                old_regime = macro_regime
+                if deviation > 0.01:
+                    macro_regime = "牛市 (大趨勢偏多)"
+                elif deviation < -0.01:
+                    macro_regime = "熊市 (大趨勢偏空)"
+                else:
+                    macro_regime = "猴市 (區間震盪)"
+                
+                if old_regime != macro_regime:
+                    print(f"@@REGIME@@{macro_regime}")
+                    print(f"🌍 [環境感知] 大趨勢已切換為: {macro_regime} (1H 偏離: {deviation*100:.2f}%)")
+        except Exception as e:
+            print(f"⚠️ [環境感知] 無法獲取 1H 趨勢: {e}")
+        
+        # 每 5 分鐘檢查一次
+        await asyncio.sleep(300)
+
 async def watch_kline_and_strategy():
     """ 透過 WebSocket 監聽 1分K，並用 NumPy 計算布林插針策略 """
     print("🚀 [行情模組一] 開始監聽 WebSocket K線數據 (正在預載歷史數據...)")
@@ -320,17 +369,23 @@ async def watch_kline_and_strategy():
             # 雙向策略：跌破買入(做多)，漲破賣出(做空)
             # 增強精準度：要求偏離大於 0.07% (0.0007) 且搭配 RSI 超買超賣指標
             if deviation <= -0.0007 and current_rsi < 40.0:
-                current_time = time.time()
-                if current_time - last_buy_time > 30: # 30 秒冷卻時間
-                    last_buy_time = current_time
-                    print(f"⚠️ [策略訊號] RSI 超賣({current_rsi:.1f}) 且低於均線！偏離: {deviation*100:.3f}%，觸發做多(Long)")
-                    asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
+                if macro_regime == "熊市 (大趨勢偏空)":
+                    pass # 熊市不逆勢做多
+                else:
+                    current_time = time.time()
+                    if current_time - last_buy_time > 30: # 30 秒冷卻時間
+                        last_buy_time = current_time
+                        print(f"⚠️ [策略訊號] RSI 超賣({current_rsi:.1f}) 且低於均線！偏離: {deviation*100:.3f}%，觸發做多(Long)")
+                        asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
             elif deviation >= 0.0007 and current_rsi > 60.0:
-                current_time = time.time()
-                if current_time - last_buy_time > 30: # 共用冷卻時間
-                    last_buy_time = current_time
-                    print(f"⚠️ [策略訊號] RSI 超買({current_rsi:.1f}) 且高於均線！偏離: {deviation*100:.3f}%，觸發做空(Short)")
-                    asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
+                if macro_regime == "牛市 (大趨勢偏多)":
+                    pass # 牛市不逆勢做空
+                else:
+                    current_time = time.time()
+                    if current_time - last_buy_time > 30: # 共用冷卻時間
+                        last_buy_time = current_time
+                        print(f"⚠️ [策略訊號] RSI 超買({current_rsi:.1f}) 且高於均線！偏離: {deviation*100:.3f}%，觸發做空(Short)")
+                        asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
                 
         except Exception as e:
             print(f"❌ [K線模組發生波動]: {e}，1秒後自動重連...")
@@ -376,10 +431,15 @@ async def main():
             
     # 啟動時先做第一次帳戶安全檢查
     await check_account_safety()
-    # 同時併發運行兩大行情模組
+    print("🚀 啟動防爆倉模組 & WebSocket 即時監聽...")
+    print(f"@@REGIME@@{macro_regime}") # 初始化發送狀態
+    # 同時併發運行兩大行情模組與全局監控
     await asyncio.gather(
+        check_account_safety(),
         watch_kline_and_strategy(),
-        watch_trades_and_order_book()
+        watch_trades_and_order_book(),
+        monitor_macro_trend(),
+        monitor_position_tp_sl()
     )
 
 if __name__ == '__main__':

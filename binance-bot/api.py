@@ -62,10 +62,11 @@ def add_system_log(text: str, level: str = "info"):
 # 模擬交易機器人狀態
 bot_status = {
     "is_running": False,
-    "strategy": "MA Deviation (30 USDT)",
-    "balance_quote": 150.0,
+    "strategy": "Sniper Mode",
+    "balance_quote": 0.0,
     "active_orders": 0,
-    "active_symbol": "SOLUSDT",
+    "active_symbol": "SUIUSDT",
+    "regime": "猴市 (區間震盪)",
     "trade_amount": 30.0,
 }
 
@@ -75,7 +76,10 @@ def read_bot_output(proc):
     for line in iter(proc.stdout.readline, ''):
         line = line.strip()
         if line:
-            add_system_log(f"[{bot_status.get('active_symbol', '')}] {line}", "info")
+            if line.startswith("@@REGIME@@"):
+                bot_status["regime"] = line.replace("@@REGIME@@", "").strip()
+            else:
+                add_system_log(f"[{bot_status.get('active_symbol', '')}] {line}", "info")
     proc.stdout.close()
 
 MAX_TOTAL_INVEST_USDT = 80.0  # 總投資金額上限 (約 2500 TWD)

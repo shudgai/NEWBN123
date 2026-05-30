@@ -47,7 +47,16 @@
             position: sticky; top: 0; z-index: 100;
         }
         .logo { font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
-        .logo span { color: var(--primary); }
+        .logo span { color: var(--primary-color); }
+        .topbar-right { display: flex; align-items: center; gap: 16px; }
+        .regime-badge {
+            font-size: 13px;
+            font-weight: 500;
+            background: var(--bg-card);
+            padding: 4px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
         .status-badge {
             font-size: 12px; font-weight: 600; padding: 5px 14px;
             border-radius: 100px; display: flex; align-items: center; gap: 6px;
@@ -290,9 +299,16 @@
     <!-- TOP BAR -->
     <div class="top-bar">
         <div class="logo"><span>⚡</span> ANTI-BOT</div>
-        <div :class="['status-badge', bot.is_running ? 'running' : 'stopped']">
-            <span class="pulse-dot" v-if="bot.is_running"></span>
-            {{ bot.is_running ? '策略運行中' : '已停止' }}
+        <div class="topbar-right">
+            <div class="regime-badge" v-if="bot.regime">
+                <span v-if="bot.regime.includes('牛')" style="color:var(--trade-up);">🌍 {{ bot.regime }}</span>
+                <span v-else-if="bot.regime.includes('熊')" style="color:var(--trade-down);">🌍 {{ bot.regime }}</span>
+                <span v-else style="color:var(--text-muted);">🌍 {{ bot.regime }}</span>
+            </div>
+            <div :class="['status-badge', bot.is_running ? 'running' : 'stopped']">
+                <span class="pulse-dot" v-if="bot.is_running"></span>
+                {{ bot.is_running ? '策略運行中' : '已停止' }}
+            </div>
         </div>
     </div>
 
@@ -523,7 +539,7 @@ createApp({
         ]);
         const activeSymbol = ref(localStorage.getItem('activeSymbol') || 'SUIUSDT');
 
-        const bot = ref({ is_running: false, strategy: '-', balance_quote: 0, active_orders: 0 });
+        const bot = ref({ is_running: false, strategy: '-', balance_quote: 0, active_orders: 0, regime: '-' });
 
         // ── Volume bars ───────────────────────────────────────────
         const volumeBars = ref([]);

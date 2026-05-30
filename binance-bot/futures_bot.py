@@ -52,7 +52,7 @@ ATR_PERIOD = 14                       # ATR 計算週期
 ORDER_BOOK_THRESHOLD_USD = 100000.0   # 盤口大單追蹤門檻 (10萬美金)
 ATR_TP_MULTIPLIER = 0.0       # 取消動態放大，只求最快平倉
 ATR_SL_MULTIPLIER = 1.5       # 止損距離 (ATR 倍數)
-MIN_TP_PCT = 0.0015      # 最小止盈 0.15% (更敏感)
+MIN_TP_PCT = 0.0015     # 全局最低停利標準：0.15%
 MIN_SL_PCT = 0.008         # 最小止損 0.8%
 current_atr = 0.0                         # 當前 ATR 值（由 K線模組更新）
 RSI_PERIOD = 14                           # RSI 計算週期
@@ -176,11 +176,19 @@ async def execute_order_and_risk(side, price):
     if available_margin <= 0:
         print(f"⚠️ [風控攔截] 模擬倉位已達上限 {dynamic_max_position:.2f} USDT，暫停加倉！")
         return
-        
-    actual_quote_amount = quote_amount
-    if available_margin < quote_amount:
+
+    # 🐒🐂🐻 依據市場狀態自動切換下單金額
+    if "猴市" in macro_regime:
+        actual_quote_amount = 75.0
+        print(f"💰 [金額切換] 猴市(盤整)模式 → 固定下單 75 USDT")
+        print(f"@@AMOUNT@@{actual_quote_amount}")
+    else:
+        actual_quote_amount = 30.0
+        print(f"💰 [金額切換] 牛/熊市(趨勢)模式 → 固定下單 30 USDT")
+        print(f"@@AMOUNT@@{actual_quote_amount}")
+    if available_margin < actual_quote_amount:
         actual_quote_amount = available_margin
-        print(f"⚠️ [額度調整] 剩餘額度不足 {quote_amount}，將剩餘 {actual_quote_amount:.2f} USDT 梭哈成一筆交易！")
+        print(f"⚠️ [額度調整] 剩餘額度不足，將剩餘 {actual_quote_amount:.2f} USDT 梭哈！")
 
     try:
         base_amt = await get_base_amount(actual_quote_amount)
@@ -371,8 +379,10 @@ async def monitor_macro_trend():
                     print_dev = coin_deviation
                 
                 if old_regime != macro_regime:
+                    amount = 75.0 if "猴市" in macro_regime else 30.0
                     print(f"@@REGIME@@{macro_regime}")
-                    print(f"🌍 [環境感知] 大趨勢已切換為: {macro_regime} (偏離: {print_dev*100:.2f}%)")
+                    print(f"@@AMOUNT@@{amount}")
+                    print(f"🌍 [環境感知] 大趨勢已切換為: {macro_regime} | 下單金額: {amount} USDT (偏離: {print_dev*100:.2f}%)")
         except Exception as e:
             print(f"⚠️ [環境感知] 無法獲取 1H 趨勢: {e}")
         
@@ -382,7 +392,7 @@ async def monitor_macro_trend():
 async def watch_kline_and_strategy():
     """ 透過 WebSocket 監聽 1分K，並用 NumPy 計算布林插針策略 """
     print("🚀 [行情模組一] 開始監聽 WebSocket K線數據 (正在預載歷史數據...)")
-    global current_atr, current_rsi
+    global current_atr, current_rsi, current_pos_qty
     prev_close = None
     tr_list = []
     import time
@@ -443,30 +453,93 @@ async def watch_kline_and_strategy():
             # 如果 RSI 進入極端瘋狂區域，禁止開倉，直到降溫
             if current_rsi > 75.0:
                 # 記錄一次警告，避免洗版，這裡不印出，只做防護攔截
-                return
+                continue
             if current_rsi < 25.0:
-                return
+                continue
 
-            # 順勢突破策略：漲破追多，跌破追空
-            # 用戶指定：0.2% (0.002) 獵槍模式 且搭配 RSI 強弱指標
-            if deviation >= 0.002 and current_rsi > 55.0:
-                if "熊市" in macro_regime:
-                    pass # 熊市不逆勢做多
+            # 🚀 [動態轉折平倉邏輯]
+            if abs(current_pos_qty) > 0.000001:
+                is_long = current_pos_qty > 0
+                recent_highs = [x[2] for x in ohlcv[-30:-1]]
+                recent_lows = [x[3] for x in ohlcv[-30:-1]]
+                resistance = max(recent_highs) if recent_highs else 999999
+                support = min(recent_lows) if recent_lows else 0
+                range_height = resistance - support
+                current_open = opens[-1]
+                
+                close_signal = False
+                close_reason = ""
+                
+                if is_long:
+                    if close_price < middle_band and opens[-1] > middle_band:
+                        close_signal = True
+                        close_reason = "跌破 20T 均線 (動能轉弱)"
+                    elif close_price >= resistance - (range_height * 0.1) and close_price < current_open:
+                        close_signal = True
+                        close_reason = "壓力區出現紅K (遇壓回檔)"
+                    elif current_rsi > 70 and close_price < current_open:
+                        close_signal = True
+                        close_reason = "RSI 超買且反轉收黑"
                 else:
-                    current_time = time.time()
-                    if current_time - last_buy_time > 30: # 30 秒冷卻時間
-                        last_buy_time = current_time
-                        print(f"⚠️ [策略訊號] 順勢突破！RSI 強勢({current_rsi:.1f}) 且高於均線！偏離: {deviation*100:.3f}%，觸發追多(Long)")
-                        asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
-            elif deviation <= -0.002 and current_rsi < 45.0:
-                if "牛市" in macro_regime:
-                    pass # 牛市不逆勢做空
+                    if close_price > middle_band and opens[-1] < middle_band:
+                        close_signal = True
+                        close_reason = "突破 20T 均線 (動能轉強)"
+                    elif close_price <= support + (range_height * 0.1) and close_price > current_open:
+                        close_signal = True
+                        close_reason = "支撐區出現綠K (遇撐反彈)"
+                    elif current_rsi < 30 and close_price > current_open:
+                        close_signal = True
+                        close_reason = "RSI 超賣且反轉收紅"
+
+                if close_signal:
+                    print(f"⚠️ [動態平倉] 偵測到趨勢轉折！原因: {close_reason}，觸發提早市價平倉！")
+                    close_side = 'sell' if is_long else 'buy'
+                    asyncio.create_task(close_entire_position(close_side, abs(current_pos_qty), close_price, current_pos_avg))
+                    current_pos_qty = 0.0
+                    continue # 平倉後本回合不再開新倉
+
+            # 動態大腦：根據大環境切換雙刀流策略 (Regime-Switching)
+            current_time = time.time()
+            if current_time - last_buy_time > 30: # 全局共用 30 秒冷卻
+                if "猴市" in macro_regime:
+                    # 🐒 猴市 (盤整)：【區間操作 Range Trading】抓天花板與地板
+                    recent_highs = [x[2] for x in ohlcv[-30:-1]] # 過去 29 根 K 線的高點 (不含當前未走完的)
+                    recent_lows = [x[3] for x in ohlcv[-30:-1]]  # 過去 29 根 K 線的低點
+                    
+                    if recent_highs and recent_lows:
+                        resistance = max(recent_highs)
+                        support = min(recent_lows)
+                        range_height = resistance - support
+                        
+                        # 確保箱子夠大 (至少 0.2% 震幅)，否則死魚盤不操作
+                        if support > 0 and (range_height / support) >= 0.002:
+                            current_open = opens[-1]
+                            
+                            # 接近壓力位 (頂部 10% 區域)，且出現紅K (走勢反轉向下)
+                            if close_price >= resistance - (range_height * 0.1):
+                                if close_price < current_open:
+                                    last_buy_time = current_time
+                                    print(f"⚠️ [雙刀流: 區間] 碰壓力區見跌(紅K)！箱頂:{resistance:.4f}，觸發做空(Short)")
+                                    asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
+                            
+                            # 接近支撐位 (底部 10% 區域)，且出現綠K (走勢反轉向上)
+                            elif close_price <= support + (range_height * 0.1):
+                                if close_price > current_open:
+                                    last_buy_time = current_time
+                                    print(f"⚠️ [雙刀流: 區間] 碰支撐區見漲(綠K)！箱底:{support:.4f}，觸發做多(Long)")
+                                    asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
                 else:
-                    current_time = time.time()
-                    if current_time - last_buy_time > 30: # 共用冷卻時間
-                        last_buy_time = current_time
-                        print(f"⚠️ [策略訊號] 順勢跌破！RSI 弱勢({current_rsi:.1f}) 且低於均線！偏離: {deviation*100:.3f}%，觸發追空(Short)")
-                        asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
+                    # 🐂🐻 牛/熊市 (趨勢)：使用【順勢突破】(追漲殺跌)
+                    if deviation >= 0.002 and current_rsi > 55.0:
+                        if "熊市" not in macro_regime: # 熊市不逆勢追多
+                            last_buy_time = current_time
+                            print(f"⚠️ [雙刀流: 順勢] 強勢突破！RSI({current_rsi:.1f}) 偏離: {deviation*100:.3f}%，觸發追多(Long)")
+                            asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
+                    elif deviation <= -0.002 and current_rsi < 45.0:
+                        if "牛市" not in macro_regime: # 牛市不逆勢追空
+                            last_buy_time = current_time
+                            print(f"⚠️ [雙刀流: 順勢] 弱勢跌破！RSI({current_rsi:.1f}) 偏離: {deviation*100:.3f}%，觸發追空(Short)")
+                            asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
                 
         except Exception as e:
             print(f"❌ [K線模組發生波動]: {e}，1秒後自動重連...")

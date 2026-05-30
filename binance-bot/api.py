@@ -78,6 +78,11 @@ def read_bot_output(proc):
         if line:
             if line.startswith("@@REGIME@@"):
                 bot_status["regime"] = line.replace("@@REGIME@@", "").strip()
+            elif line.startswith("@@AMOUNT@@"):
+                try:
+                    bot_status["trade_amount"] = float(line.replace("@@AMOUNT@@", "").strip())
+                except:
+                    pass
             else:
                 add_system_log(f"[{bot_status.get('active_symbol', '')}] {line}", "info")
     proc.stdout.close()
@@ -178,8 +183,8 @@ def set_bot_symbol(symbol: str):
 @app.post("/api/bot-status/set-amount/{amount}")
 def set_bot_amount(amount: float):
     """設定當前機器人自動交易的單筆數量"""
-    if amount < 0 or amount > 70:
-        raise HTTPException(status_code=400, detail="單次交易數量必須限制在 0 至 70 之間")
+    if amount < 0 or amount > 150:
+        raise HTTPException(status_code=400, detail="單次交易數量必須限制在 0 至 150 之間")
     bot_status["trade_amount"] = amount
     symbol = bot_status.get("active_symbol", "SOLUSDT")
     base_asset, _ = parse_symbol(symbol)

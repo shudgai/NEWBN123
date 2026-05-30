@@ -402,8 +402,8 @@
                     <span class="amount-val">{{ tempTradeAmount }} {{ getQuoteAsset() }}</span>
                 </div>
                 <div class="slider-row">
-                    <input type="range" min="0" max="70" step="1" v-model.number="tempTradeAmount" @change="updateTradeAmount">
-                    <input type="number" min="0" max="70" class="amount-input" v-model.number="tempTradeAmount" @blur="updateTradeAmount" @keyup.enter="updateTradeAmount">
+                    <input type="range" min="0" max="150" step="1" v-model.number="tempTradeAmount" @change="updateTradeAmount">
+                    <input type="number" min="0" max="150" class="amount-input" v-model.number="tempTradeAmount" @blur="updateTradeAmount" @keyup.enter="updateTradeAmount">
                 </div>
             </div>
 
@@ -799,7 +799,7 @@ createApp({
         };
 
         const updateTradeAmount = async () => {
-            let a = Math.max(0, Math.min(70, tempTradeAmount.value));
+            let a = Math.max(0, Math.min(150, tempTradeAmount.value));
             tempTradeAmount.value = a;
             try {
                 const res = await fetch(`${API_BASE}/bot-status/set-amount/${a}`, { method: 'POST' });

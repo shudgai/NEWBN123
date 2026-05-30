@@ -67,7 +67,7 @@ bot_status = {
     "active_orders": 0,
     "active_symbol": "SUIUSDT",
     "regime": "猴市 (區間震盪)",
-    "trade_amount": 30.0,
+    "trade_amount": 75.0,
 }
 
 bot_process = None

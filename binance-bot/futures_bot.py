@@ -59,11 +59,12 @@ RSI_PERIOD = 14                           # RSI 計算週期
 RSI_OVERBOUGHT = 70                       # RSI 超買門檻（高於此不買入）
 current_rsi = 50.0                        # 當前 RSI 值
 macro_regime = "猴市 (區間震盪)"          # 全局大趨勢狀態
+default_amount = 75.0 if "猴市" in macro_regime else 30.0
 
 # 🎯 物理防火牆：每日最大虧損限額設定
-INITIAL_BALANCE = 80.0                    # 你的總本金 80 USDT
+INITIAL_BALANCE = 150.0                   # 你的總本金 150 USDT
 MAX_DAILY_LOSS_PCT = 0.05                 # 每日最大容忍虧損 5%
-BALANCE_STOP_LINE = INITIAL_BALANCE * (1 - MAX_DAILY_LOSS_PCT)  # 80 * 0.95 = 76 USDT
+BALANCE_STOP_LINE = INITIAL_BALANCE * (1 - MAX_DAILY_LOSS_PCT)  # 150 * 0.95 = 142.5 USDT
 
 
 # =====================================================================
@@ -588,6 +589,7 @@ async def main():
     await initialize_simulated_position()
     print("🚀 啟動防爆倉模組 & WebSocket 即時監聽...")
     print(f"@@REGIME@@{macro_regime}") # 初始化發送狀態
+    print(f"@@AMOUNT@@{default_amount}") # 初始化發送金額
     # 同時併發運行兩大行情模組與全局監控
     await asyncio.gather(
         check_account_safety(),

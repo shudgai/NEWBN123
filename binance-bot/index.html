@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Binance Bot Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Vue 3 CDN -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Lightweight Charts for candlestick -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        :root {
+            --bg-color: #0b0e11;
+            --card-bg: rgba(24, 26, 32, 0.65);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-main: #eaecef;
+            --text-muted: #848e9c;
+            --primary: #f0b90b;
+            --success: #0ecb81;
+            --danger: #f6465d;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(240, 185, 11, 0.06) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(14, 203, 129, 0.04) 0%, transparent 40%);
+        }
+
+        /* ── TOP BAR ─────────────────────────────── */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 28px;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(11,14,17,0.85);
+            backdrop-filter: blur(12px);
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo { font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+        .logo span { color: var(--primary); }
+        .status-badge {
+            font-size: 12px; font-weight: 600; padding: 5px 14px;
+            border-radius: 100px; display: flex; align-items: center; gap: 6px;
+            background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);
+        }
+        .status-badge.running { color: var(--success); background: rgba(14,203,129,0.1); border-color: rgba(14,203,129,0.2); }
+        .status-badge.stopped { color: var(--danger); background: rgba(246,70,93,0.1); border-color: rgba(246,70,93,0.2); }
+        .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100%{transform:scale(0.9);opacity:0.6;} 50%{transform:scale(1.2);opacity:1;} }
+
+        /* ── THREE-COLUMN LAYOUT ───────────────────── */
+        .main-layout {
+            display: grid;
+            grid-template-columns: 280px 1fr 420px;
+            gap: 0;
+            height: calc(100vh - 54px);
+        }
+
+        /* ── PANELS ──────────────────────────── */
+        .left-panel {
+            order: 2; /* Chart goes to middle */
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .right-panel {
+            overflow-y: auto;
+            padding: 20px 22px;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.1) transparent;
+        }
+        
+        /* First right panel goes to left */
+        .main-layout > .right-panel:nth-of-type(2) {
+            order: 1;
+            border-right: 1px solid var(--border-color);
+        }
+        
+        /* Second right panel goes to far right */
+        .main-layout > .right-panel:nth-of-type(3) {
+            order: 3;
+            border-left: 1px solid var(--border-color);
+        }
+
+        /* Coin selector strip */
+        .coin-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .coin-chip {
+            flex-shrink: 0;
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
+            background: rgba(255,255,255,0.03);
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+            transition: all 0.2s;
+            display: flex; flex-direction: column; align-items: center; gap: 1px;
+        }
+        .coin-chip:hover { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.07); }
+        .coin-chip.active { border-color: var(--primary); background: rgba(240,185,11,0.08); color: var(--primary); }
+        .coin-chip-price { font-size: 10px; font-family: 'JetBrains Mono'; font-weight: 400; }
+        .coin-chip-price.up { color: var(--success); }
+        .coin-chip-price.down { color: var(--danger); }
+
+        /* Price hero */
+        .price-hero {
+            padding: 16px 16px 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .price-hero-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+        .price-hero-value {
+            font-family: 'JetBrains Mono'; font-size: 32px; font-weight: 700;
+            transition: color 0.15s;
+            line-height: 1.2; margin-top: 2px;
+        }
+        .price-hero-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; gap: 12px; align-items: center; }
+        .currency-toggle { font-size: 10px; color: var(--primary); cursor: pointer; text-decoration: underline; }
+        .currency-toggle:hover { color: #fff; }
+
+        /* Candlestick chart */
+        .chart-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .chart-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .tf-btn {
+            padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 700;
+            border: 1px solid var(--border-color); background: transparent;
+            color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+        }
+        .tf-btn:hover { color: var(--text-main); border-color: rgba(255,255,255,0.2); }
+        .tf-btn.active { background: var(--primary); color: #000; border-color: var(--primary); }
+        .chart-label { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+        #chart-container {
+            flex: 1;
+            min-height: 0;
+        }
+
+        /* Volume bars section */
+        .volume-section {
+            padding: 10px 14px 12px;
+            border-top: 1px solid var(--border-color);
+        }
+        .vol-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px;
+        }
+        .vol-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; }
+        .vol-current { font-family: 'JetBrains Mono'; font-size: 13px; font-weight: 700; color: var(--primary); }
+        .vol-bars { display: flex; align-items: flex-end; gap: 2px; height: 52px; }
+        .vol-bar {
+            flex: 1;
+            border-radius: 2px 2px 0 0;
+            transition: height 0.3s ease;
+            min-height: 2px;
+        }
+        .vol-bar.bull { background: rgba(14,203,129,0.7); }
+        .vol-bar.bear { background: rgba(246,70,93,0.6); }
+        .vol-bar.active-bar { opacity: 1; box-shadow: 0 0 6px rgba(240,185,11,0.5); }
+
+        /* ── RIGHT PANEL ─────────────────────────── */
+        .right-panel {
+            overflow-y: auto;
+            padding: 20px 22px;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.1) transparent;
+        }
+        .right-panel::-webkit-scrollbar { width: 4px; }
+        .right-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+        .section-title {
+            font-size: 11px; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 1px;
+            margin-bottom: 10px; display: block;
+        }
+
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+        .info-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+
+        .info-card {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 14px; padding: 14px;
+        }
+        .info-title { font-size: 11px; color: var(--text-muted); margin-bottom: 5px; }
+        .info-val { font-size: 16px; font-weight: 600; }
+        .info-val.mono { font-family: 'JetBrains Mono'; }
+        .up { color: var(--success) !important; }
+        .down { color: var(--danger) !important; }
+
+        .card { background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+
+        /* Amount slider */
+        .amount-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .amount-val { font-family: 'JetBrains Mono'; font-weight: 700; color: var(--primary); }
+        .slider-row { display: flex; align-items: center; gap: 10px; }
+        input[type=range] { flex: 1; accent-color: var(--primary); cursor: pointer; }
+        .amount-input {
+            width: 68px; background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-color); color: var(--text-main);
+            border-radius: 6px; padding: 4px 6px;
+            font-family: 'JetBrains Mono'; font-size: 12px; text-align: center;
+        }
+
+        /* Buttons */
+        .btn { width: 100%; padding: 13px; border-radius: 14px; border: none; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; }
+        .btn-primary { background: var(--primary); color: #000; }
+        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-danger:hover { opacity: 0.9; transform: translateY(-1px); }
+        .order-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }
+        .btn-buy {
+            background: rgba(14,203,129,0.12); border: 1px solid var(--success);
+            color: var(--success); padding: 11px; border-radius: 10px; cursor: pointer;
+            font-weight: 700; font-size: 12px; transition: all 0.2s; text-align: center;
+        }
+        .btn-buy:hover:not(:disabled) { background: var(--success); color: #000; }
+        .btn-sell {
+            background: rgba(246,70,93,0.12); border: 1px solid var(--danger);
+            color: var(--danger); padding: 11px; border-radius: 10px; cursor: pointer;
+            font-weight: 700; font-size: 12px; transition: all 0.2s; text-align: center;
+        }
+        .btn-sell:hover:not(:disabled) { background: var(--danger); color: #fff; }
+        .btn-buy:disabled, .btn-sell:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* Trades table */
+        .trades-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; }
+        .trades-table th, .trades-table td { padding: 7px 4px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.04); }
+        .trades-table th { color: var(--text-muted); font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .trades-table td { font-family: 'JetBrains Mono'; }
+        .badge { font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px; }
+        .badge.buy { background: rgba(14,203,129,0.15); color: var(--success); }
+        .badge.sell { background: rgba(246,70,93,0.15); color: var(--danger); }
+
+        /* Console */
+        .log-console-wrap {
+            background: rgba(0,0,0,0.4); border: 1px solid var(--border-color);
+            border-radius: 14px; padding: 12px; margin-bottom: 14px;
+        }
+        .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .log-header-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+        .log-clear { font-size: 10px; color: var(--primary); cursor: pointer; }
+        .log-console {
+            font-family: 'JetBrains Mono'; font-size: 11px; color: #a9dfbf;
+            height: 110px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;
+            scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+        }
+        .log-console::-webkit-scrollbar { width: 3px; }
+        .log-console::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+        .log-time { color: var(--text-muted); margin-right: 5px; }
+        .log-info { color: #5dade2; }
+        .log-warning { color: #f4d03f; }
+        .log-danger { color: var(--danger); }
+        .log-success { color: var(--success); }
+
+        .footer { text-align: center; font-size: 11px; color: var(--text-muted); padding: 10px 0 4px; }
+        .error-msg { background: rgba(246,70,93,0.1); border: 1px solid var(--danger); color: var(--danger); padding: 10px; border-radius: 10px; margin-bottom: 12px; font-size: 13px; }
+    </style>
+</head>
+<body>
+<div id="app">
+
+    <!-- TOP BAR -->
+    <div class="top-bar">
+        <div class="logo"><span>⚡</span> ANTI-BOT</div>
+        <div :class="['status-badge', bot.is_running ? 'running' : 'stopped']">
+            <span class="pulse-dot" v-if="bot.is_running"></span>
+            {{ bot.is_running ? '策略運行中' : '已停止' }}
+        </div>
+    </div>
+
+    <!-- MAIN LAYOUT -->
+    <div class="main-layout">
+
+        <!-- ══ LEFT PANEL ═══════════════════════════════ -->
+        <div class="left-panel">
+
+            <!-- Coin chip strip -->
+            <div class="coin-strip">
+                <div
+                    v-for="coin in coins" :key="coin.symbol"
+                    :class="['coin-chip', activeSymbol === coin.symbol ? 'active' : '']"
+                    @click="setActiveCoin(coin.symbol)"
+                >
+                    <span>{{ coin.name }}</span>
+                    <span :class="['coin-chip-price', coin.priceClass]">
+                        {{ formatMiniPrice(coin.price) }}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Price hero -->
+            <div class="price-hero">
+                <div class="price-hero-label">即時價格 &mdash; <strong style="color:var(--primary)">{{ getActiveCoinLabel() }}</strong></div>
+                <div :class="['price-hero-value', mainPriceClass]">
+                    {{ currentCurrencySymbol }}{{ formattedMainPrice }}
+                </div>
+                <div class="price-hero-sub">
+                    <span v-if="twdRate > 0">1 USD ≈ {{ twdRate.toFixed(2) }} TWD</span>
+                    <span class="currency-toggle" @click="toggleCurrency">切換為 {{ currentCurrency === 'USD' ? 'TWD' : 'USD' }}</span>
+                </div>
+            </div>
+
+            <!-- Chart area -->
+            <div class="chart-section">
+                <div class="chart-toolbar">
+                    <button v-for="tf in timeframes" :key="tf.value"
+                        :class="['tf-btn', selectedTf === tf.value ? 'active' : '']"
+                        @click="changeTf(tf.value)">{{ tf.label }}</button>
+                    <span class="chart-label">K 線圖</span>
+                </div>
+                <div id="chart-container"></div>
+            </div>
+
+            <!-- Volume bars -->
+            <div class="volume-section">
+                <div class="vol-header">
+                    <span class="vol-title">📊 即時成交量 ({{ volumeUnit }})</span>
+                    <span class="vol-current">{{ latestVolumeStr }}</span>
+                </div>
+                <div class="vol-bars">
+                    <div
+                        v-for="(bar, idx) in volumeBars" :key="idx"
+                        :class="['vol-bar', bar.bull ? 'bull' : 'bear', idx === volumeBars.length - 1 ? 'active-bar' : '']"
+                        :style="{ height: bar.pct + '%' }"
+                        :title="bar.label"
+                    ></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══ RIGHT PANEL ══════════════════════════════ -->
+        <div class="right-panel">
+
+            <div v-if="error" class="error-msg">⚠️ {{ error }}</div>
+
+            <!-- Strategy & Balance -->
+            <div class="info-grid">
+                <div class="info-card">
+                    <div class="info-title">當前策略</div>
+                    <div class="info-val" style="font-size:14px;">{{ bot.strategy }}</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-title">總已實現利潤</div>
+                    <div :class="['info-val mono', (bot.balance_quote - 150) > 0 ? 'up' : (bot.balance_quote - 150) < 0 ? 'down' : '']" style="font-size:15px;">
+                        {{ (bot.balance_quote - 150) > 0 ? '+' : '' }}{{ formatCurrencyVal(bot.balance_quote - 150) }} USDT
+                    </div>
+                </div>
+                <div class="info-card">
+                    <div class="info-title">帳戶 <span id="quoteAssetLabel">{{ getQuoteAsset() }}</span> 餘額</div>
+                    <div class="info-val mono">{{ formatQuoteBalance() }}</div>
+                </div>
+            </div>
+
+            <!-- Trade amount -->
+            <div class="card">
+                <div class="amount-row">
+                    <span class="info-title">單次自動交易金額</span>
+                    <span class="amount-val">{{ tempTradeAmount }} {{ getQuoteAsset() }}</span>
+                </div>
+                <div class="slider-row">
+                    <input type="range" min="0" max="70" step="1" v-model.number="tempTradeAmount" @change="updateTradeAmount">
+                    <input type="number" min="0" max="70" class="amount-input" v-model.number="tempTradeAmount" @blur="updateTradeAmount" @keyup.enter="updateTradeAmount">
+                </div>
+            </div>
+
+            <!-- Position -->
+            <span class="section-title" style="margin-top:4px;">當前持倉與盈虧</span>
+            <div class="info-grid">
+                <div class="info-card">
+                    <div class="info-title">
+                        持倉數量 ({{ position.asset }})
+                        <span v-if="position.qty > 0" style="color:var(--success);font-size:10px;margin-left:4px;">多單(Long)</span>
+                        <span v-if="position.qty < 0" style="color:var(--danger);font-size:10px;margin-left:4px;">空單(Short)</span>
+                    </div>
+                    <div class="info-val mono" style="font-size:15px;">{{ Math.abs(position.qty).toFixed(5) }}</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-title">開倉平均成本</div>
+                    <div class="info-val mono" style="font-size:14px;">{{ currentCurrencySymbol }}{{ formatCurrencyVal(position.avg_price) }}</div>
+                </div>
+            </div>
+            <div class="info-grid-3">
+                <div class="info-card">
+                    <div class="info-title">持倉現值</div>
+                    <div class="info-val mono" style="font-size:13px;">{{ currentCurrencySymbol }}{{ formatCurrencyVal(position.current_value) }}</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-title">未實現 P&L</div>
+                    <div :class="['info-val mono', position.pnl > 0 ? 'up' : position.pnl < 0 ? 'down' : '']" style="font-size:12px;">
+                        {{ position.pnl > 0 ? '+' : '' }}{{ formatCurrencyVal(position.pnl) }}
+                        <span style="font-size:10px; font-weight:400; display:block;">({{ position.pnl_percent.toFixed(2) }}%)</span>
+                    </div>
+                </div>
+                <div class="info-card">
+                    <div class="info-title">已實現 P&L</div>
+                    <div :class="['info-val mono', position.realized_pnl > 0 ? 'up' : position.realized_pnl < 0 ? 'down' : '']" style="font-size:12px;">
+                        {{ position.realized_pnl > 0 ? '+' : '' }}{{ formatCurrencyVal(position.realized_pnl) }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bot toggle -->
+            <button :class="['btn', bot.is_running ? 'btn-danger' : 'btn-primary']" @click="toggleBot" style="margin-bottom:10px;">
+                {{ bot.is_running ? '⏹️ 停止交易機器人' : '▶️ 啟動交易機器人' }}
+            </button>
+
+            <!-- Manual orders -->
+            <div class="order-grid">
+                <button class="btn-buy" @click="placeMarketBuy" :disabled="isPlacingOrder">🟢 手動做多(Long) 15 USDT</button>
+                <button class="btn-sell" @click="placeMarketSell" :disabled="isPlacingOrder">🔴 一鍵平倉(Close Position)</button>
+            </div>
+
+            <!-- Live trades -->
+            <div class="card">
+                <span class="section-title">⚡ 即時成交 ({{ activeCoin?.name }}/{{ getQuoteAsset() }})</span>
+                <div style="max-height:140px; overflow-y:auto;">
+                    <table class="trades-table">
+                        <thead>
+                            <tr><th>時間</th><th>方向</th><th>數量</th><th>單價 ({{ getQuoteAsset() }})</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="(t, idx) in liveTrades" :key="t.id + '-' + idx">
+                                <td>{{ formatLiveTradeTime(t.time) }}</td>
+                                <td><span :class="['badge', t.is_buy ? 'buy' : 'sell']">{{ t.is_buy ? 'BUY' : 'SELL' }}</span></td>
+                                <td>{{ t.qty.toFixed(4) }}</td>
+                                <td>{{ currentCurrencySymbol }}{{ formatCurrencyVal(t.price) }}</td>
+                            </tr>
+                            <tr v-if="liveTrades.length === 0">
+                                <td colspan="4" style="text-align:center;color:var(--text-muted);padding:12px;">等待即時成交...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══ FAR RIGHT PANEL ══════════════════════════════ -->
+        <div class="right-panel">
+
+            <!-- Trade history -->
+            <div class="card">
+                <span class="section-title">📜 歷史交易 ({{ activeCoin?.name }}/{{ getQuoteAsset() }})</span>
+                <div style="max-height:220px; overflow-y:auto;">
+                    <table class="trades-table">
+                        <thead>
+                            <tr><th>時間</th><th>類型</th><th>成交價</th><th>數量</th><th>盈虧</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="t in trades" :key="t.id">
+                                <td>{{ formatTradeTime(t.time) }}</td>
+                                <td><span :class="['badge', t.is_buyer ? 'buy' : 'sell']">{{ t.is_buyer ? 'BUY' : 'SELL' }}</span></td>
+                                <td>{{ formatCurrencyVal(t.price) }}</td>
+                                <td>{{ t.qty.toFixed(5) }}</td>
+                                <td>
+                                    <span v-if="t.pnl !== null && t.pnl !== undefined" :class="t.pnl > 0 ? 'up' : t.pnl < 0 ? 'down' : ''">
+                                        {{ t.pnl > 0 ? '+' : '' }}{{ t.pnl.toFixed(2) }}
+                                    </span>
+                                    <span v-else>-</span>
+                                </td>
+                            </tr>
+                            <tr v-if="trades.length === 0">
+                                <td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px;">尚無交易紀錄</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- System console -->
+            <div class="log-console-wrap">
+                <div class="log-header">
+                    <span class="log-header-title">💻 系統紀錄</span>
+                    <span class="log-clear" @click="clearLogs">清除</span>
+                </div>
+                <div class="log-console" ref="consoleRef">
+                    <div v-for="(log, idx) in logs" :key="idx">
+                        <span class="log-time">[{{ log.time }}]</span>
+                        <span :class="log.levelClass">{{ log.text }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer">連接後端 API: http://localhost:8081</div>
+        </div>
+    </div>
+</div>
+
+<script>
+const { createApp, ref, computed, onMounted, onUnmounted, nextTick } = Vue;
+
+createApp({
+    setup() {
+        const error = ref('');
+        const currentCurrency = ref('USD');
+        const twdRate = ref(32.5);
+        const logs = ref([]);
+        const consoleRef = ref(null);
+        const isPlacingOrder = ref(false);
+        const trades = ref([]);
+        const liveTrades = ref([]);
+        const tempTradeAmount = ref(10);
+        const selectedTf = ref('1m');
+        const timeframes = [
+            { label: '1m', value: '1m' },
+            { label: '5m', value: '5m' },
+            { label: '15m', value: '15m' },
+            { label: '1h', value: '1h' },
+        ];
+
+        const position = ref({ asset: '-', qty: 0, avg_price: 0, total_cost: 0, current_price: 0, current_value: 0, pnl: 0, pnl_percent: 0, realized_pnl: 0 });
+
+        const coins = ref([
+            { symbol: 'BTCUSDT', name: 'BTC', label: '比特幣', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'ETHUSDT', name: 'ETH', label: '乙太幣', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'BNBUSDT', name: 'BNB', label: '幣安幣', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'SOLBNB', name: 'SOL', label: '索拉納/BNB', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'SOLUSDT', name: 'SOL', label: '索拉納', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'SUIUSDT', name: 'SUI', label: 'SUI', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'USDCUSDT', name: 'USDC', label: 'USD幣', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'XRPUSDT', name: 'XRP', label: '瑞波幣', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'PEPEUSDT', name: 'PEPE', label: '佩佩蛙', price: 0, prevPrice: 0, priceClass: '' },
+        ]);
+        const activeSymbol = ref('SOLUSDT');
+
+        const bot = ref({ is_running: false, strategy: '-', balance_quote: 0, active_orders: 0 });
+
+        // ── Volume bars ───────────────────────────────────────────
+        const volumeBars = ref([]);
+        const latestVolumeStr = ref('--');
+        const volumeUnit = ref('');
+        const klinesData = ref([]);
+
+        const buildVolumeBars = (data) => {
+            if (!data || data.length === 0) return;
+            klinesData.value = data;
+            const maxVol = Math.max(...data.map(d => d.volume));
+            volumeBars.value = data.map(d => ({
+                pct: maxVol > 0 ? Math.max(4, (d.volume / maxVol) * 100) : 4,
+                bull: d.close >= d.open,
+                label: `Vol: ${d.volume.toLocaleString(undefined, {maximumFractionDigits: 2})}`
+            }));
+            const last = data[data.length - 1];
+            if (last) {
+                const v = last.volume;
+                if (v >= 1000) {
+                    latestVolumeStr.value = (v / 1000).toFixed(2) + 'K';
+                } else {
+                    latestVolumeStr.value = v.toFixed(2);
+                }
+                volumeUnit.value = activeSymbol.value.replace(/USDT|BNB|BUSD|BTC|ETH/, '');
+            }
+        };
+
+        // ── Lightweight Charts candlestick ────────────────────────
+        let chart = null;
+        let candleSeries = null;
+        let volSeries = null;
+        let bbUpperSeries = null;
+        let bbMiddleSeries = null;
+        let bbLowerSeries = null;
+
+        const initChart = () => {
+            const container = document.getElementById('chart-container');
+            if (!container) return;
+            if (chart) { chart.remove(); chart = null; }
+
+            chart = LightweightCharts.createChart(container, {
+                layout: {
+                    background: { color: 'transparent' },
+                    textColor: '#848e9c',
+                },
+                grid: {
+                    vertLines: { color: 'rgba(255,255,255,0.04)' },
+                    horzLines: { color: 'rgba(255,255,255,0.04)' },
+                },
+                crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
+                timeScale: {
+                    borderColor: 'rgba(255,255,255,0.08)',
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+                handleScroll: true,
+                handleScale: true,
+            });
+
+            candleSeries = chart.addCandlestickSeries({
+                upColor: '#0ecb81',
+                downColor: '#f6465d',
+                borderUpColor: '#0ecb81',
+                borderDownColor: '#f6465d',
+                wickUpColor: '#0ecb81',
+                wickDownColor: '#f6465d',
+            });
+
+            bbUpperSeries = chart.addLineSeries({ color: 'rgba(246,70,93,0.3)', lineWidth: 1, lastValueVisible: false });
+            bbMiddleSeries = chart.addLineSeries({ color: 'rgba(132,142,156,0.4)', lineWidth: 1, lastValueVisible: false });
+            bbLowerSeries = chart.addLineSeries({ color: 'rgba(14,203,129,0.3)', lineWidth: 1, lastValueVisible: false });
+
+            // Auto-resize
+            const ro = new ResizeObserver(() => {
+                if (chart && container) {
+                    chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+                }
+            });
+            ro.observe(container);
+            chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+        };
+
+        const loadKlines = async () => {
+            try {
+                const res = await fetch(`/api/klines/${activeSymbol.value}?interval=${selectedTf.value}&limit=80`);
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+                buildVolumeBars(data);
+                if (candleSeries) {
+                    const candles = data.map(d => ({
+                        time: Math.floor(d.time),
+                        open: d.open, high: d.high, low: d.low, close: d.close
+                    }));
+                    candleSeries.setData(candles);
+                    chart?.timeScale().fitContent();
+
+                    // 布林通道計算
+                    const closes = data.map(d => d.close);
+                    const period = 20;
+                    if (closes.length >= period) {
+                        const bbData = [];
+                        for (let i = period - 1; i < closes.length; i++) {
+                            const slice = closes.slice(i - period + 1, i + 1);
+                            const sma = slice.reduce((a, b) => a + b, 0) / period;
+                            const variance = slice.reduce((s, v) => s + (v - sma) ** 2, 0) / period;
+                            const std = Math.sqrt(variance);
+                            bbData.push({
+                                time: Math.floor(data[i].time),
+                                mid: sma,
+                                upper: sma + 2 * std,
+                                lower: sma - 2 * std,
+                            });
+                        }
+                        if (bbUpperSeries) {
+                            bbUpperSeries.setData(bbData.map(d => ({ time: d.time, value: d.upper })));
+                            bbMiddleSeries.setData(bbData.map(d => ({ time: d.time, value: d.mid })));
+                            bbLowerSeries.setData(bbData.map(d => ({ time: d.time, value: d.lower })));
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('K線載入失敗', e);
+            }
+        };
+
+        const changeTf = (tf) => {
+            selectedTf.value = tf;
+            loadKlines();
+        };
+
+        // Update latest candle from WS ticker
+        const updateLatestCandle = (symbol, price) => {
+            if (symbol !== activeSymbol.value || !candleSeries) return;
+            const now = Math.floor(Date.now() / 1000);
+            try {
+                candleSeries.update({ time: now, open: price, high: price, low: price, close: price });
+            } catch(e) {}
+        };
+
+        const API_BASE = '/api';
+
+        const activeCoin = computed(() => coins.value.find(c => c.symbol === activeSymbol.value));
+
+        const formattedMainPrice = computed(() => {
+            if (!activeCoin.value?.price) return '---.--';
+            const p = currentCurrency.value === 'TWD' ? activeCoin.value.price * twdRate.value : activeCoin.value.price;
+            const absV = Math.abs(p);
+            let d = 2;
+            if (absV < 0.0001) d = 8;
+            else if (absV < 1) d = 6;
+            else if (absV < 1000) d = 4;
+            else d = 2;
+            return p.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+        });
+
+        const mainPriceClass = computed(() => activeCoin.value?.priceClass || '');
+        const currentCurrencySymbol = computed(() => currentCurrency.value === 'TWD' ? 'NT$' : '$');
+
+        const formatMiniPrice = (price) => {
+            if (!price) return '0.00';
+            const p = currentCurrency.value === 'TWD' ? price * twdRate.value : price;
+            const absV = Math.abs(p);
+            let d = 2;
+            if (absV < 0.0001) d = 8;
+            else if (absV < 1) d = 6;
+            else if (absV < 1000) d = 4;
+            else d = 2;
+            return p.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+        };
+
+        const formatCurrencyVal = (val) => {
+            if (!val) return '0.00';
+            const v = currentCurrency.value === 'TWD' ? val * twdRate.value : val;
+            const absV = Math.abs(v);
+            let d = 2;
+            if (absV < 0.0001) d = 8;
+            else if (absV < 1) d = 6;
+            else if (absV < 1000) d = 4;
+            else d = 2;
+            return v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+        };
+
+        const getActiveCoinLabel = () => activeCoin.value ? `${activeCoin.value.name} (${activeCoin.value.label})` : '';
+
+        const getQuoteAsset = () => {
+            const s = activeSymbol.value;
+            if (s.endsWith('BNB')) return 'BNB';
+            if (s.endsWith('USDT')) return 'USDT';
+            if (s.endsWith('BUSD')) return 'BUSD';
+            return 'USDT';
+        };
+
+        const formatQuoteBalance = () => {
+            const b = bot.value.balance_quote || 0;
+            const q = getQuoteAsset();
+            return b.toLocaleString(undefined, { minimumFractionDigits: q === 'BNB' ? 4 : 2, maximumFractionDigits: q === 'BNB' ? 4 : 2 }) + ' ' + q;
+        };
+
+        const formatTradeTime = (ts) => {
+            if (!ts) return '-';
+            return new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        };
+
+        const formatLiveTradeTime = (ts) => {
+            if (!ts) return '-';
+            return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        };
+
+        const addLog = (text, level = 'info') => {
+            const t = new Date().toTimeString().split(' ')[0];
+            let lc = 'log-info';
+            if (level === 'warning') lc = 'log-warning';
+            if (level === 'danger')  lc = 'log-danger';
+            if (level === 'success') lc = 'log-success';
+            logs.value.push({ time: t, text, levelClass: lc });
+            if (logs.value.length > 100) logs.value.shift();
+            nextTick(() => { if (consoleRef.value) consoleRef.value.scrollTop = consoleRef.value.scrollHeight; });
+        };
+
+        const clearLogs = () => { logs.value = []; addLog('控制台已清空。'); };
+        const toggleCurrency = () => { currentCurrency.value = currentCurrency.value === 'USD' ? 'TWD' : 'USD'; };
+
+        const setActiveCoin = async (symbol) => {
+            if (bot.value.is_running) {
+                addLog('⚠️ 請先停止機器人，再切換幣種', 'warning');
+                return;
+            }
+            activeSymbol.value = symbol;
+            addLog(`切換監聽: ${coins.value.find(c => c.symbol === symbol)?.name}`);
+            fetchPosition(); fetchTrades(); loadKlines();
+            try { await fetch(`${API_BASE}/bot-status/set-symbol/${symbol}`, { method: 'POST' }); } catch(e) {}
+        };
+
+        const fetchExchangeRate = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/exchangerate/usdtwd`);
+                const data = await res.json();
+                twdRate.value = data.rate;
+            } catch(e) {}
+        };
+
+        const fetchBotStatus = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/bot-status`);
+                const data = await res.json();
+                if (bot.value.is_running !== data.is_running && bot.value.strategy !== '-')
+                    addLog(`機器人狀態: ${data.is_running ? '🚀 啟動' : '⏹️ 停止'}`);
+                bot.value = data;
+                if (data.trade_amount !== undefined) {
+                    if (document.activeElement?.type !== 'number' && document.activeElement?.type !== 'range')
+                        tempTradeAmount.value = data.trade_amount;
+                }
+            } catch(e) { error.value = '後端連線失敗。'; }
+        };
+
+        const updateTradeAmount = async () => {
+            let a = Math.max(0, Math.min(70, tempTradeAmount.value));
+            tempTradeAmount.value = a;
+            try {
+                const res = await fetch(`${API_BASE}/bot-status/set-amount/${a}`, { method: 'POST' });
+                const data = await res.json();
+                if (res.ok) addLog(`交易金額設為 ${data.trade_amount} ${getQuoteAsset()}`, 'success');
+            } catch(e) { addLog('設定金額失敗', 'danger'); }
+        };
+
+        const fetchPosition = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/position/${activeSymbol.value}`);
+                if (res.ok) position.value = await res.json();
+            } catch(e) {}
+        };
+
+        const fetchTrades = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/trades/${activeSymbol.value}`);
+                if (res.ok) trades.value = await res.json();
+            } catch(e) {}
+        };
+
+        const toggleBot = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/bot-status/toggle`, { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'success') { bot.value.is_running = data.is_running; addLog(`手動${data.is_running ? '啟動' : '停止'}機器人`); }
+            } catch(e) { addLog('開關失敗', 'warning'); }
+        };
+
+        const placeMarketBuy = async () => {
+            const coin = activeCoin.value; if (!coin) return;
+            isPlacingOrder.value = true;
+            addLog(`🛒 買入 15 USDT 的 ${coin.name}...`);
+            try {
+                const res = await fetch(`${API_BASE}/order/market-buy/${coin.symbol}?amount=15`, { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    addLog(`✅ 買入成功! ID:${data.order.orderId} 數量:${parseFloat(data.order.executedQty).toFixed(5)}`, 'success');
+                    setTimeout(() => { fetchBotStatus(); fetchPosition(); fetchTrades(); }, 1200);
+                } else throw new Error(data.detail);
+            } catch(e) { addLog(`❌ 買入失敗: ${e.message}`, 'danger'); }
+            finally { isPlacingOrder.value = false; }
+        };
+
+        const placeMarketSell = async () => {
+            const coin = activeCoin.value; if (!coin) return;
+            isPlacingOrder.value = true;
+            addLog(`🛒 全倉賣出 ${coin.name}...`);
+            try {
+                const res = await fetch(`${API_BASE}/order/market-sell/${coin.symbol}`, { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    addLog(`✅ 賣出成功! ${data.order?.orderId || data.detail || ''}`, 'success');
+                    setTimeout(() => { fetchBotStatus(); fetchPosition(); fetchTrades(); }, 1200);
+                } else throw new Error(data.detail);
+            } catch(e) { addLog(`❌ 賣出失敗: ${e.message}`, 'danger'); }
+            finally { isPlacingOrder.value = false; }
+        };
+
+        // ── WebSocket ─────────────────────────────────────────────
+        let ws, wsFallbackTimeout, reconnectTimer, fallbackInterval;
+        let isUsingFallback = false, lastLogTime = 0;
+        let statusInterval, rateInterval, positionInterval, tradesInterval, logsInterval, klineInterval;
+
+        const startHTTPFallback = () => {
+            if (isUsingFallback) return;
+            isUsingFallback = true;
+            addLog('⚠️ WS 無回應，啟用 HTTP 輪詢...', 'warning');
+            fallbackInterval = setInterval(async () => {
+                for (let coin of coins.value) {
+                    try {
+                        const res = await fetch(`${API_BASE}/price/${coin.symbol}`);
+                        if (res.ok) {
+                            const d = await res.json();
+                            coin.prevPrice = coin.price; coin.price = d.price;
+                            if (coin.prevPrice > 0) {
+                                coin.priceClass = coin.price > coin.prevPrice ? 'up' : coin.price < coin.prevPrice ? 'down' : '';
+                                setTimeout(() => { coin.priceClass = ''; }, 400);
+                            }
+                            if (coin.symbol === activeSymbol.value) updateLatestCandle(coin.symbol, coin.price);
+                        }
+                    } catch(e) {}
+                }
+            }, 3000);
+        };
+
+        const initWebSocket = () => {
+            if (wsFallbackTimeout) clearTimeout(wsFallbackTimeout);
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            if (ws) { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; try { ws.close(); } catch(e) {} ws = null; }
+
+            wsFallbackTimeout = setTimeout(() => {
+                if (!isUsingFallback && !activeCoin.value?.price) startHTTPFallback();
+            }, 5000);
+
+            addLog('建立幣安行情 WebSocket...');
+            const streams = coins.value.map(c => `${c.symbol.toLowerCase()}@ticker`).join('/') + '/' + coins.value.map(c => `${c.symbol.toLowerCase()}@trade`).join('/');
+            ws = new WebSocket(`wss://stream.binance.com/stream?streams=${streams}`);
+
+            ws.onopen = () => { addLog('⚡ 幣安 WebSocket 連線成功！'); };
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                const data = msg.data;
+                if (!data?.e) return;
+                if (data.e === 'trade') {
+                    const t = {
+                        id: data.t,
+                        time: data.T,
+                        price: parseFloat(data.p),
+                        qty: parseFloat(data.q),
+                        is_buy: !data.m,
+                        symbol: data.s
+                    };
+                    if (data.s === activeSymbol.value) {
+                        liveTrades.value.unshift(t);
+                        if (liveTrades.value.length > 30) liveTrades.value.pop();
+                    }
+                }
+                if (data.e === '24hrTicker' && data?.s) {
+                    if (wsFallbackTimeout) { clearTimeout(wsFallbackTimeout); wsFallbackTimeout = null; }
+                    if (isUsingFallback) { isUsingFallback = false; clearInterval(fallbackInterval); addLog('⚡ WebSocket 恢復'); }
+                    const coin = coins.value.find(c => c.symbol === data.s);
+                    if (coin) {
+                        coin.prevPrice = coin.price;
+                        coin.price = parseFloat(data.c);
+                        if (coin.prevPrice > 0) {
+                            coin.priceClass = coin.price > coin.prevPrice ? 'up' : coin.price < coin.prevPrice ? 'down' : '';
+                            setTimeout(() => { coin.priceClass = ''; }, 400);
+                        }
+                        if (data.s === activeSymbol.value) {
+                            updateLatestCandle(data.s, coin.price);
+                            const now = Date.now();
+                            if (now - lastLogTime > 1200) {
+                                lastLogTime = now;
+                                const fv = currentCurrency.value === 'TWD'
+                                    ? `NT$${(coin.price * twdRate.value).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`
+                                    : `$${coin.price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+                                addLog(`📊 [${coin.name}] ${fv}`);
+                            }
+                            if (position.value.qty > 0) {
+                                position.value.current_price = coin.price;
+                                position.value.current_value = position.value.qty * coin.price;
+                                position.value.pnl = position.value.current_value - position.value.total_cost;
+                                position.value.pnl_percent = position.value.total_cost > 0 ? (position.value.pnl / position.value.total_cost) * 100 : 0;
+                            }
+                        }
+                    }
+                }
+            };
+
+            ws.onerror = () => { addLog('WS 異常', 'danger'); startHTTPFallback(); };
+            ws.onclose = () => {
+                addLog('WS 中斷，5s 後重連...', 'warning');
+                if (!reconnectTimer) reconnectTimer = setTimeout(() => { reconnectTimer = null; initWebSocket(); }, 5000);
+            };
+        };
+
+        // Backend logs sync
+        const fetchBackendLogs = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/logs`);
+                if (!res.ok) return;
+                const bl = await res.json();
+                let hasNew = false;
+                for (let log of bl) {
+                    let lc = log.level === 'warning' ? 'log-warning' : log.level === 'danger' ? 'log-danger' : log.level === 'success' ? 'log-success' : 'log-info';
+                    if (!logs.value.some(l => l.time === log.time && l.text === log.text)) {
+                        logs.value.push({ time: log.time, text: log.text, levelClass: lc });
+                        hasNew = true;
+                    }
+                }
+                if (hasNew) {
+                    if (logs.value.length > 100) logs.value = logs.value.slice(-100);
+                    nextTick(() => { if (consoleRef.value) consoleRef.value.scrollTop = consoleRef.value.scrollHeight; });
+                }
+            } catch(e) {}
+        };
+
+        onMounted(() => {
+            addLog('🚀 Dashboard 初始化...');
+            initChart();
+            fetchExchangeRate();
+            fetchBotStatus();
+            fetchPosition();
+            fetchTrades();
+            loadKlines();
+            initWebSocket();
+            fetch(`${API_BASE}/bot-status/set-symbol/SOLUSDT`, { method: 'POST' });
+            fetchBackendLogs();
+
+            statusInterval   = setInterval(fetchBotStatus, 5000);
+            positionInterval = setInterval(fetchPosition, 5000);
+            tradesInterval   = setInterval(fetchTrades, 8000);
+            rateInterval     = setInterval(fetchExchangeRate, 60000);
+            logsInterval     = setInterval(fetchBackendLogs, 2000);
+            klineInterval    = setInterval(loadKlines, 60000); // 每分鐘重刷 K 線
+        });
+
+        onUnmounted(() => {
+            if (ws) { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; ws.close(); }
+            if (wsFallbackTimeout) clearTimeout(wsFallbackTimeout);
+            if (reconnectTimer)    clearTimeout(reconnectTimer);
+            if (fallbackInterval)  clearInterval(fallbackInterval);
+            clearInterval(statusInterval); clearInterval(positionInterval);
+            clearInterval(tradesInterval); clearInterval(rateInterval);
+            clearInterval(logsInterval);   clearInterval(klineInterval);
+        });
+
+        return {
+            coins, activeSymbol, activeCoin,
+            formattedMainPrice, mainPriceClass,
+            currentCurrency, currentCurrencySymbol, twdRate,
+            toggleCurrency, setActiveCoin,
+            formatMiniPrice, formatCurrencyVal, formatTradeTime, formatLiveTradeTime, getActiveCoinLabel, getQuoteAsset, formatQuoteBalance,
+            bot, position, trades, liveTrades, error,
+            toggleBot, isPlacingOrder, placeMarketBuy, placeMarketSell,
+            logs, consoleRef, clearLogs,
+            tempTradeAmount, updateTradeAmount,
+            selectedTf, timeframes, changeTf,
+            volumeBars, latestVolumeStr, volumeUnit,
+        };
+    }
+}).mount('#app');
+</script>
+</body>
+</html>

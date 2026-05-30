@@ -96,11 +96,26 @@ async def get_current_price():
     ticker = await exchange.fetch_ticker(symbol)
     return float(ticker['last'])
 
-async def get_base_amount():
+async def get_base_amount(amt_usd):
     price = await get_current_price()
-    return quote_amount / price
+    return amt_usd / price
 
 simulated_base_amt = 0.0
+
+async def initialize_simulated_position():
+    global simulated_base_amt
+    if PAPER_TRADING:
+        try:
+            import json
+            import os
+            if os.path.exists("paper_state.json"):
+                with open("paper_state.json", "r") as f:
+                    state = json.load(f)
+                    pos = state.get("positions", {}).get(symbol.replace('/', ''), {})
+                    simulated_base_amt = float(pos.get("qty", 0.0))
+                    print(f"📦 [系統初始化] 從歷史紀錄恢復模擬倉位: {simulated_base_amt} 顆")
+        except Exception as e:
+            print(f"⚠️ [系統初始化] 無法讀取歷史倉位，預設為 0: {e}")
 
 MAX_POSITION_USD = 150.0
 
@@ -151,15 +166,23 @@ async def execute_order_and_risk(side, price):
     # 動態持倉上限 = 當前總資金 (實現複利滾存)
     dynamic_max_position = current_balance
 
-    # 計算如果再加倉，是否會超過上限
-    if (abs(simulated_base_amt) * current_p) + quote_amount > dynamic_max_position:
+    # 計算剩餘可下單額度
+    current_position_usd = abs(simulated_base_amt) * current_p
+    available_margin = dynamic_max_position - current_position_usd
+
+    if available_margin <= 0:
         print(f"⚠️ [風控攔截] 模擬倉位已達上限 {dynamic_max_position:.2f} USDT，暫停加倉！")
         return
+        
+    actual_quote_amount = quote_amount
+    if available_margin < quote_amount:
+        actual_quote_amount = available_margin
+        print(f"⚠️ [額度調整] 剩餘額度不足 {quote_amount}，將剩餘 {actual_quote_amount:.2f} USDT 梭哈成一筆交易！")
 
     try:
-        base_amt = await get_base_amount()
+        base_amt = await get_base_amount(actual_quote_amount)
         direction_str = "做多(Long)" if side == 'buy' else "做空(Short)"
-        print(f"\n🛒 [下單模組] 💡 訊號觸發！發送【市價單】{direction_str} {quote_amount} USDT -> 數量: {base_amt:.6f}")
+        print(f"\n🛒 [下單模組] 💡 訊號觸發！發送【市價單】{direction_str} {actual_quote_amount:.2f} USDT -> 數量: {base_amt:.6f}")
         
         if PAPER_TRADING:
             avg_price = price
@@ -279,27 +302,47 @@ async def monitor_macro_trend():
     global macro_regime
     while True:
         try:
-            # 抓取 1 小時 K 線 (最新 30 根)
+            # 先抓取 BTC 大盤 1 小時 K 線
+            btc_ohlcv = await exchange.fetch_ohlcv('BTCUSDT', timeframe='1h', limit=30)
+            if len(btc_ohlcv) >= 20:
+                btc_closes = np.array([x[4] for x in btc_ohlcv])
+                btc_sma = np.mean(btc_closes[-20:])
+                btc_deviation = (btc_closes[-1] - btc_sma) / btc_sma
+            else:
+                btc_deviation = 0.0
+
+            # 抓取當前交易幣種 1 小時 K 線
             ohlcv = await exchange.fetch_ohlcv(symbol, timeframe='1h', limit=30)
             if len(ohlcv) >= 20:
                 closes = np.array([x[4] for x in ohlcv])
                 current_price = closes[-1]
                 sma_20 = np.mean(closes[-20:])
                 
-                # 計算偏離度
-                deviation = (current_price - sma_20) / sma_20
+                # 計算幣種偏離度
+                coin_deviation = (current_price - sma_20) / sma_20
                 
                 old_regime = macro_regime
-                if deviation > 0.005:
-                    macro_regime = "牛市 (大趨勢偏多)"
-                elif deviation < -0.005:
-                    macro_regime = "熊市 (大趨勢偏空)"
+                
+                # 邏輯：BTC 大盤擁有最高決策權
+                if btc_deviation > 0.005:
+                    macro_regime = "牛市 (大盤BTC帶飛)"
+                    print_dev = btc_deviation
+                elif btc_deviation < -0.005:
+                    macro_regime = "熊市 (大盤BTC帶崩)"
+                    print_dev = btc_deviation
                 else:
-                    macro_regime = "猴市 (區間震盪)"
+                    # 大盤震盪時，才看個別幣種
+                    if coin_deviation > 0.005:
+                        macro_regime = "牛市 (獨立走強)"
+                    elif coin_deviation < -0.005:
+                        macro_regime = "熊市 (獨立走弱)"
+                    else:
+                        macro_regime = "猴市 (區間震盪)"
+                    print_dev = coin_deviation
                 
                 if old_regime != macro_regime:
                     print(f"@@REGIME@@{macro_regime}")
-                    print(f"🌍 [環境感知] 大趨勢已切換為: {macro_regime} (1H 偏離: {deviation*100:.2f}%)")
+                    print(f"🌍 [環境感知] 大趨勢已切換為: {macro_regime} (偏離: {print_dev*100:.2f}%)")
         except Exception as e:
             print(f"⚠️ [環境感知] 無法獲取 1H 趨勢: {e}")
         
@@ -377,7 +420,7 @@ async def watch_kline_and_strategy():
             # 順勢突破策略：漲破追多，跌破追空
             # 衝鋒槍模式：要求偏離大於 0.055% (0.00055) 且搭配 RSI 強弱指標
             if deviation >= 0.00055 and current_rsi > 55.0:
-                if macro_regime == "熊市 (大趨勢偏空)":
+                if "熊市" in macro_regime:
                     pass # 熊市不逆勢做多
                 else:
                     current_time = time.time()
@@ -386,7 +429,7 @@ async def watch_kline_and_strategy():
                         print(f"⚠️ [策略訊號] 順勢突破！RSI 強勢({current_rsi:.1f}) 且高於均線！偏離: {deviation*100:.3f}%，觸發追多(Long)")
                         asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
             elif deviation <= -0.00055 and current_rsi < 45.0:
-                if macro_regime == "牛市 (大趨勢偏多)":
+                if "牛市" in macro_regime:
                     pass # 牛市不逆勢做空
                 else:
                     current_time = time.time()
@@ -429,16 +472,17 @@ async def watch_trades_and_order_book():
 # 主程式入口
 # =====================================================================
 async def main():
-    if not PAPER_TRADING:
-        try:
+    try:
+        if not PAPER_TRADING:
             await exchange.set_margin_mode('isolated', symbol)
-            await exchange.set_leverage(1, symbol)
-            print(f"🔒 [安全保護] 已成功強制設定合約為【逐倉模式】與【1倍槓桿】！")
-        except Exception as e:
-            print(f"⚠️ [安全保護警告] 設定逐倉/槓桿失敗，可能該幣種不支援或已有持倉: {e}")
+            await exchange.set_leverage(10, symbol)
+            print(f"🔧 [系統初始化] 實盤模式: 已設定為逐倉模式與 10 倍槓桿")
+    except Exception as e:
+        print(f"⚠️ [安全保護警告] 設定逐倉/槓桿失敗，可能該幣種不支援或已有持倉: {e}")
             
-    # 啟動時先做第一次帳戶安全檢查
+    # 啟動時先做第一次帳戶安全檢查與歷史倉位載入
     await check_account_safety()
+    await initialize_simulated_position()
     print("🚀 啟動防爆倉模組 & WebSocket 即時監聽...")
     print(f"@@REGIME@@{macro_regime}") # 初始化發送狀態
     # 同時併發運行兩大行情模組與全局監控

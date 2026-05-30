@@ -290,9 +290,9 @@ async def monitor_macro_trend():
                 deviation = (current_price - sma_20) / sma_20
                 
                 old_regime = macro_regime
-                if deviation > 0.01:
+                if deviation > 0.005:
                     macro_regime = "牛市 (大趨勢偏多)"
-                elif deviation < -0.01:
+                elif deviation < -0.005:
                     macro_regime = "熊市 (大趨勢偏空)"
                 else:
                     macro_regime = "猴市 (區間震盪)"
@@ -366,25 +366,33 @@ async def watch_kline_and_strategy():
             close_price = closes[-1]
             deviation = (close_price - middle_band) / middle_band
             
-            # 雙向策略：跌破買入(做多)，漲破賣出(做空)
-            # 衝鋒槍模式：要求偏離大於 0.055% (0.00055) 且搭配 RSI 超買超賣指標
-            if deviation <= -0.00055 and current_rsi < 45.0:
+            # 🔥 新增：高溫煞車系統 (RSI Overheat Protection)
+            # 如果 RSI 進入極端瘋狂區域，禁止開倉，直到降溫
+            if current_rsi > 75.0:
+                # 記錄一次警告，避免洗版，這裡不印出，只做防護攔截
+                return
+            if current_rsi < 25.0:
+                return
+
+            # 順勢突破策略：漲破追多，跌破追空
+            # 衝鋒槍模式：要求偏離大於 0.055% (0.00055) 且搭配 RSI 強弱指標
+            if deviation >= 0.00055 and current_rsi > 55.0:
                 if macro_regime == "熊市 (大趨勢偏空)":
                     pass # 熊市不逆勢做多
                 else:
                     current_time = time.time()
                     if current_time - last_buy_time > 30: # 30 秒冷卻時間
                         last_buy_time = current_time
-                        print(f"⚠️ [策略訊號] RSI 超賣({current_rsi:.1f}) 且低於均線！偏離: {deviation*100:.3f}%，觸發做多(Long)")
+                        print(f"⚠️ [策略訊號] 順勢突破！RSI 強勢({current_rsi:.1f}) 且高於均線！偏離: {deviation*100:.3f}%，觸發追多(Long)")
                         asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
-            elif deviation >= 0.00055 and current_rsi > 55.0:
+            elif deviation <= -0.00055 and current_rsi < 45.0:
                 if macro_regime == "牛市 (大趨勢偏多)":
                     pass # 牛市不逆勢做空
                 else:
                     current_time = time.time()
                     if current_time - last_buy_time > 30: # 共用冷卻時間
                         last_buy_time = current_time
-                        print(f"⚠️ [策略訊號] RSI 超買({current_rsi:.1f}) 且高於均線！偏離: {deviation*100:.3f}%，觸發做空(Short)")
+                        print(f"⚠️ [策略訊號] 順勢跌破！RSI 弱勢({current_rsi:.1f}) 且低於均線！偏離: {deviation*100:.3f}%，觸發追空(Short)")
                         asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
                 
         except Exception as e:

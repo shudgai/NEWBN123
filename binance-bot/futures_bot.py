@@ -528,19 +528,19 @@ async def watch_kline_and_strategy():
                         support = min(recent_lows)
                         range_height = resistance - support
                         
-                        # 確保箱子夠大 (至少 0.2% 震幅)，否則死魚盤不操作
-                        if support > 0 and (range_height / support) >= 0.002:
+                        # 確保箱子夠大 (至少 0.1% 震幅)，否則死魚盤不操作
+                        if support > 0 and (range_height / support) >= 0.001:
                             current_open = opens[-1]
                             
-                            # 接近壓力位 (頂部 10% 區域)，且出現紅K (走勢反轉向下)
-                            if close_price >= resistance - (range_height * 0.1):
+                            # 接近壓力位 (頂部 20% 區域)，且出現紅K (走勢反轉向下)
+                            if close_price >= resistance - (range_height * 0.2):
                                 if close_price < current_open:
                                     last_buy_time = current_time
                                     print(f"⚠️ [雙刀流: 區間] 碰壓力區見跌(紅K)！箱頂:{resistance:.4f}，觸發做空(Short)")
                                     asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
                             
-                            # 接近支撐位 (底部 10% 區域)，且出現綠K (走勢反轉向上)
-                            elif close_price <= support + (range_height * 0.1):
+                            # 接近支撐位 (底部 20% 區域)，且出現綠K (走勢反轉向上)
+                            elif close_price <= support + (range_height * 0.2):
                                 if close_price > current_open:
                                     last_buy_time = current_time
                                     print(f"⚠️ [雙刀流: 區間] 碰支撐區見漲(綠K)！箱底:{support:.4f}，觸發做多(Long)")

@@ -53,13 +53,13 @@ ORDER_BOOK_THRESHOLD_USD = 100000.0   # 盤口大單追蹤門檻 (10萬美金)
 ATR_TP_MULTIPLIER = 0.0       # 取消動態放大，只求最快平倉
 ATR_SL_MULTIPLIER = 1.5       # 止損距離 (ATR 倍數)
 MIN_TP_PCT = 0.0015     # 全局最低停利標準：0.15%
-MIN_SL_PCT = 0.008         # 最小止損 0.8%
+MIN_SL_PCT = 0.1         # 止損 10%
 current_atr = 0.0                         # 當前 ATR 值（由 K線模組更新）
 RSI_PERIOD = 14                           # RSI 計算週期
 RSI_OVERBOUGHT = 70                       # RSI 超買門檻（高於此不買入）
 current_rsi = 50.0                        # 當前 RSI 值
 macro_regime = "猴市 (區間震盪)"          # 全局大趨勢狀態
-default_amount = 75.0 if "猴市" in macro_regime else 30.0
+default_amount = 50.0 if "猴市" in macro_regime else 30.0
 
 # 🎯 物理防火牆：每日最大虧損限額設定
 INITIAL_BALANCE = 150.0                   # 你的總本金 150 USDT
@@ -147,83 +147,95 @@ async def has_reached_position_limit():
 # =====================================================================
 # ③ 下單與風控模組 (Execution & Risk Control)
 # =====================================================================
+order_lock = asyncio.Lock()
+is_ordering = False
+
 async def execute_order_and_risk(side, price):
-    global simulated_base_amt
-    global simulated_avg_price
-    global current_atr
+    global simulated_base_amt, simulated_avg_price, current_atr, is_ordering
     
-    # 1. 每次準備下單前，先檢查今天是不是虧太多了
-    await check_account_safety()
-    
-    # 2. 安全防護：檢查是否有持倉上限
-    current_p = await get_current_price()
-    current_balance = 150.0
-    if PAPER_TRADING:
-        try:
-            import json
-            with open("paper_state.json", "r") as f:
-                state = json.load(f)
-                current_balance = float(state.get("balance_usdt", 150.0))
-        except:
-            pass
-    
-    # 動態持倉上限 = 當前總資金 (實現複利滾存)
-    dynamic_max_position = current_balance
-
-    # 計算剩餘可下單額度
-    current_position_usd = abs(simulated_base_amt) * current_p
-    available_margin = dynamic_max_position - current_position_usd
-
-    if available_margin <= 0:
-        print(f"⚠️ [風控攔截] 模擬倉位已達上限 {dynamic_max_position:.2f} USDT，暫停加倉！")
+    # 防止並發開倉：同時間只允許一筆訂單執行
+    if is_ordering:
+        print(f"⚠️ [並發防護] 已有訂單在執行，跳過")
         return
-
-    # 🐒🐂🐻 依據市場狀態自動切換下單金額
-    if "猴市" in macro_regime:
-        actual_quote_amount = 75.0
-        print(f"💰 [金額切換] 猴市(盤整)模式 → 固定下單 75 USDT")
-        print(f"@@AMOUNT@@{actual_quote_amount}")
-    else:
-        actual_quote_amount = 30.0
-        print(f"💰 [金額切換] 牛/熊市(趨勢)模式 → 固定下單 30 USDT")
-        print(f"@@AMOUNT@@{actual_quote_amount}")
-    if available_margin < actual_quote_amount:
-        actual_quote_amount = available_margin
-        print(f"⚠️ [額度調整] 剩餘額度不足，將剩餘 {actual_quote_amount:.2f} USDT 梭哈！")
-
+    is_ordering = True
     try:
-        base_amt = await get_base_amount(actual_quote_amount)
-        direction_str = "做多(Long)" if side == 'buy' else "做空(Short)"
-        print(f"\n🛒 [下單模組] 💡 訊號觸發！發送【市價單】{direction_str} {actual_quote_amount:.2f} USDT -> 數量: {base_amt:.6f}")
+    
+        # 1. 每次準備下單前，先檢查今天是不是虧太多了
+        await check_account_safety()
         
+        # 2. 安全防護：檢查是否有持倉上限
+        current_p = await get_current_price()
+        current_balance = 150.0
         if PAPER_TRADING:
-            avg_price = price
-            actual_received_amt = base_amt
-            if side == 'buy':
-                simulated_base_amt += actual_received_amt
-            else:
-                simulated_base_amt -= actual_received_amt
-            simulated_avg_price = avg_price
-            print(f"✅ [模擬開倉成功] {direction_str} | 成交均價: {avg_price} | 總倉位: {simulated_base_amt:.6f}")
-            update_paper_state(symbol.replace('/', ''), side, avg_price, actual_received_amt)
+            try:
+                import json
+                with open("paper_state.json", "r") as f:
+                    state = json.load(f)
+                    current_balance = float(state.get("balance_usdt", 150.0))
+            except:
+                pass
+        
+        # 動態持倉上限 = 當前總資金 (實現複利滾存)
+        dynamic_max_position = current_balance
+    
+        # 計算剩餘可下單額度
+        current_position_usd = abs(simulated_base_amt) * current_p
+        available_margin = dynamic_max_position - current_position_usd
+    
+        if available_margin <= 0:
+            print(f"⚠️ [風控攔截] 模擬倉位已達上限 {dynamic_max_position:.2f} USDT，暫停加倉！")
+            return
+    
+        # 🐒🐂🐻 依據市場狀態自動切換下單金額
+        if "猴市" in macro_regime:
+            actual_quote_amount = 50.0
+            print(f"💰 [金額切換] 猴市(盤整)模式 → 固定下單 50 USDT")
+            print(f"@@AMOUNT@@{actual_quote_amount}")
         else:
-            # 3. 執行市價開倉單
-            open_order = await exchange.create_order(
-                symbol=symbol,
-                type='market',
-                side=side,
-                amount=base_amt
-            )
-            avg_price = open_order.get('average') or price
-            print(f"✅ [下單模組] {direction_str} 開倉成功！實際成交均價: {avg_price} | 單號: {open_order['id']}")
-        
-        # 4. 只負責執行開倉，TP/SL 由 monitor_position_tp_sl 全局監控負責
-        # print(f"🛡️ [風控模組] 已開倉！等待全局風控引擎接手監控。")
+            actual_quote_amount = 30.0
+            print(f"💰 [金額切換] 牛/熊市(趨勢)模式 → 固定下單 30 USDT")
+            print(f"@@AMOUNT@@{actual_quote_amount}")
+        if available_margin < actual_quote_amount:
+            actual_quote_amount = available_margin
+            print(f"⚠️ [額度調整] 剩餘額度不足，將剩餘 {actual_quote_amount:.2f} USDT 梭哈！")
+        # 硬上限：總持倉不超過 MAX_POSITION_USD
+        if current_position_usd + actual_quote_amount > MAX_POSITION_USD:
+            actual_quote_amount = max(0, MAX_POSITION_USD - current_position_usd)
+            if actual_quote_amount < 1.0:
+                print(f"⚠️ [硬上限] 總持倉已達 {MAX_POSITION_USD} USDT 上限，不再加倉")
+                return
+    
+        try:
+            base_amt = await get_base_amount(actual_quote_amount)
+            direction_str = "做多(Long)" if side == 'buy' else "做空(Short)"
+            print(f"\n🛒 [下單模組] 💡 訊號觸發！發送【市價單】{direction_str} {actual_quote_amount:.2f} USDT -> 數量: {base_amt:.6f}")
             
-    except Exception as e:
-        print(f"🚨 [下單/風控模組嚴重致命錯誤]: {e}")
-        if PAPER_TRADING:
-            simulated_base_amt = 0.0
+            if PAPER_TRADING:
+                avg_price = price
+                actual_received_amt = base_amt
+                if side == 'buy':
+                    simulated_base_amt += actual_received_amt
+                else:
+                    simulated_base_amt -= actual_received_amt
+                simulated_avg_price = avg_price
+                print(f"✅ [模擬開倉成功] {direction_str} | 成交均價: {avg_price} | 總倉位: {simulated_base_amt:.6f}")
+                update_paper_state(symbol.replace('/', ''), side, avg_price, actual_received_amt)
+            else:
+                open_order = await exchange.create_order(
+                    symbol=symbol,
+                    type='market',
+                    side=side,
+                    amount=base_amt
+                )
+                avg_price = open_order.get('average') or price
+                print(f"✅ [下單模組] {direction_str} 開倉成功！實際成交均價: {avg_price} | 單號: {open_order['id']}")
+                
+        except Exception as e:
+            print(f"🚨 [下單/風控模組嚴重致命錯誤]: {e}")
+            if PAPER_TRADING:
+                simulated_base_amt = 0.0
+    finally:
+        is_ordering = False
 
 async def update_position_info():
     global current_pos_qty, current_pos_avg
@@ -530,16 +542,18 @@ async def watch_kline_and_strategy():
                                     print(f"⚠️ [雙刀流: 區間] 碰支撐區見漲(綠K)！箱底:{support:.4f}，觸發做多(Long)")
                                     asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
                 else:
-                    # 🐂🐻 牛/熊市 (趨勢)：使用【順勢突破】(追漲殺跌)
-                    if deviation >= 0.002 and current_rsi > 55.0:
-                        if "熊市" not in macro_regime: # 熊市不逆勢追多
+                    # 🐂🐻 牛/熊市 (趨勢)：回踩均線進場（低接 / 高賣）
+                    if "牛市" in macro_regime and -0.001 <= deviation <= 0.002 and current_rsi < 60.0:
+                        # 價格回踩 SMA20 附近（偏離 -0.1% ~ +0.2%），RSI 未過熱
+                        if prev_close_bar > middle_band:
                             last_buy_time = current_time
-                            print(f"⚠️ [雙刀流: 順勢] 強勢突破！RSI({current_rsi:.1f}) 偏離: {deviation*100:.3f}%，觸發追多(Long)")
+                            print(f"⚠️ [趨勢-低接] 牛市回踩均線！偏離:{deviation*100:.3f}%，RSI:{current_rsi:.1f}，觸發做多(Long)")
                             asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
-                    elif deviation <= -0.002 and current_rsi < 45.0:
-                        if "牛市" not in macro_regime: # 牛市不逆勢追空
+                    elif "熊市" in macro_regime and -0.002 <= deviation <= 0.001 and current_rsi > 40.0:
+                        # 價格反彈到 SMA20 附近（偏離 -0.2% ~ +0.1%），RSI 未超賣
+                        if prev_close_bar < middle_band:
                             last_buy_time = current_time
-                            print(f"⚠️ [雙刀流: 順勢] 弱勢跌破！RSI({current_rsi:.1f}) 偏離: {deviation*100:.3f}%，觸發追空(Short)")
+                            print(f"⚠️ [趨勢-高賣] 熊市反彈均線！偏離:{deviation*100:.3f}%，RSI:{current_rsi:.1f}，觸發做空(Short)")
                             asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
                 
         except Exception as e:

@@ -353,7 +353,7 @@ async def monitor_position_tp_sl():
 # =====================================================================
 async def monitor_macro_trend():
     """ 週期性檢查 1H 級別的 20T 均線，判斷大趨勢 (牛/熊/猴) """
-    global macro_regime
+    global macro_regime, current_pos_qty
     while True:
         try:
             # 先抓取 BTC 大盤 1 小時 K 線
@@ -395,7 +395,7 @@ async def monitor_macro_trend():
                     print_dev = coin_deviation
                 
                 if old_regime != macro_regime:
-                    amount = 75.0 if "猴市" in macro_regime else 30.0
+                    amount = 50.0 if "猴市" in macro_regime else 30.0
                     print(f"@@REGIME@@{macro_regime}")
                     print(f"@@AMOUNT@@{amount}")
                     print(f"🌍 [環境感知] 大趨勢已切換為: {macro_regime} | 下單金額: {amount} USDT (偏離: {print_dev*100:.2f}%)")
@@ -404,6 +404,7 @@ async def monitor_macro_trend():
         
         # 每 5 分鐘檢查一次
         await asyncio.sleep(300)
+        print(f"💓 [心跳] bot 運行中 | 持倉: {current_pos_qty:.4f} | 狀態: {macro_regime}")
 
 async def watch_kline_and_strategy():
     """ 透過 WebSocket 監聽 1分K，並用 NumPy 計算布林插針策略 """

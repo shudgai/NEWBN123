@@ -315,8 +315,11 @@ async def monitor_position_tp_sl():
             ticker = await exchange.fetch_ticker(symbol)
             current_p = ticker['last']
             
-            # 3. 判斷全局 TP/SL
-            tp_pct = MIN_TP_PCT
+            # 3. 判斷全局 TP/SL（依牛/熊/猴市自動切換）
+            if "猴市" in macro_regime:
+                tp_pct = 0.03    # 猴市停利 3%
+            else:
+                tp_pct = 0.05    # 牛/熊市停利 5%
             sl_pct = MIN_SL_PCT
             
             if current_pos_qty > 0: # 多單

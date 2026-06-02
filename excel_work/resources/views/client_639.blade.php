@@ -77,7 +77,13 @@
     
     <!-- Controls Section -->
     <div class="mb-4 flex justify-between items-center bg-gray-50 p-3 rounded border w-full">
-        <div>
+        <div class="flex gap-2">
+            <a href="/" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+                回首頁
+            </a>
             <button @click="clearAllData" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0">
                 清空全部資料
             </button>
@@ -124,6 +130,68 @@
     </datalist>
     <datalist id="location-names">
         <option v-for="loc in uniqueLocations" :key="loc" :value="loc"></option>
+        <!-- 台北市區 -->
+        <option value="台北"></option>
+        <!-- 近郊 (+220) -->
+        <option value="景美"></option>
+        <option value="天母"></option>
+        <option value="士林"></option>
+        <option value="大直"></option>
+        <option value="內湖"></option>
+        <option value="松山"></option>
+        <option value="萬華"></option>
+        <option value="社子"></option>
+        <!-- 近郊 (+330) -->
+        <option value="三重"></option>
+        <option value="中和"></option>
+        <option value="永和"></option>
+        <option value="南港"></option>
+        <option value="板橋"></option>
+        <option value="石牌"></option>
+        <option value="北投"></option>
+        <option value="木柵"></option>
+        <option value="新店"></option>
+        <option value="蘆洲"></option>
+        <!-- 近郊 (+440) -->
+        <option value="五股"></option>
+        <option value="泰山"></option>
+        <option value="新莊"></option>
+        <option value="樹林"></option>
+        <!-- 近郊 (+550) -->
+        <option value="汐止"></option>
+        <option value="土城"></option>
+        <option value="楊梅"></option>
+        <option value="深坑"></option>
+        <!-- 近郊 (+660) -->
+        <option value="淡水"></option>
+        <option value="八里"></option>
+        <!-- 桃園區 -->
+        <option value="蘆竹"></option>
+        <option value="大園"></option>
+        <option value="中壢"></option>
+        <option value="內壢"></option>
+        <option value="林口"></option>
+        <option value="龜山"></option>
+        <option value="桃園"></option>
+        <!-- 桃園遠區 -->
+        <option value="新屋"></option>
+        <option value="八德"></option>
+        <option value="觀音"></option>
+        <option value="平鎮"></option>
+        <option value="龍潭"></option>
+        <option value="三峽"></option>
+        <option value="鶯歌"></option>
+        <!-- 遠區 -->
+        <option value="新竹"></option>
+        <option value="湖口"></option>
+        <option value="基隆"></option>
+        <option value="大溪"></option>
+        <option value="新豐"></option>
+        <option value="七堵"></option>
+        <option value="瑞芳"></option>
+        <!-- 特殊 -->
+        <option value="冷泉港"></option>
+        <option value="台中"></option>
     </datalist>
     <datalist id="remark-options">
         <option value="同下批"></option>
@@ -138,14 +206,15 @@
         <table class="text-left border-collapse excel-table" :style="{ fontSize: fontSize + 'px' }" ref="excelTable">
             <thead>
                 <tr class="bg-gray-100 border-b-2 border-black">
-                    <th style="width: 100px;">日期</th>
-                    <th style="width: 100px;">客戶名稱</th>
-                    <th style="width: 150px;">提單號碼</th>
-                    <th style="width: 60px;" class="text-right">件數</th>
-                    <th style="width: 60px;" class="text-right">重量</th>
-                    <th style="width: 100px;" class="text-right">運費</th>
+                    <th @click="sortBy('date')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">日期</th>
+                    <th @click="sortBy('client_name')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">客戶名稱</th>
+                    <th @click="sortBy('bill_no')" style="width: 150px;" class="cursor-pointer hover:bg-gray-200 select-none">提單號碼</th>
+                    <th @click="sortBy('pieces')" style="width: 60px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">件數</th>
+                    <th @click="sortBy('weight')" style="width: 60px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">重量</th>
+                    <th @click="sortBy('amount')" style="width: 100px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">運費</th>
                     <th style="width: 100px;" class="text-right">堆高機</th>
-                    <th style="width: 150px;">備註</th>
+                    <th @click="sortBy('location')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">地點</th>
+                    <th @click="sortBy('remark')" style="width: 150px;" class="cursor-pointer hover:bg-gray-200 select-none">備註</th>
                     <th style="width: 60px;" class="text-right">總重</th>
                     <th style="width: 40px;" class="text-center">
                         <input type="checkbox" @change="toggleAllSelection" :checked="isAllSelected" class="w-4 h-4 cursor-pointer align-middle" title="全選/取消全選">
@@ -158,11 +227,12 @@
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'date')}" :style="getCellStyle(row, 0)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.date" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'date', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'client_name')}" :style="getCellStyle(row, 1)"><input list="client-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.client_name" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'client_name', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'bill_no')}" :style="getCellStyle(row, 2)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.bill_no" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'bill_no', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}" :style="getCellStyle(row, 3)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}" :style="getCellStyle(row, 3)"><input autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}" :style="getCellStyle(row, 4)"><input autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
                     <td class="p-0 text-right relative group" :class="{'fill-highlight': isFillHighlighted(index, 'amount')}" :style="getCellStyle(row, 5)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.amount" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'amount', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'forklift_fee')}" :style="getCellStyle(row, 6)"><input autocomplete="off" @keydown="handleArrowKeys" @change="recalculateAndSave(row)" type="text" v-model.number="row.forklift_fee" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'forklift_fee', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}" :style="getCellStyle(row, 7)"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="handleRemarkChange(row, index)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}" :style="getCellStyle(row, 7)"><input list="location-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}" :style="getCellStyle(row, 8)"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="handleRemarkChange(row, index)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
                     <td class="p-1 text-right text-blue-600 font-bold bg-gray-50 align-middle">@{{ getGroupTotalWeight(row) }}</td>
                     <td class="p-0 text-center align-middle relative group" :class="{'fill-highlight': isFillHighlighted(index, 'selected')}">
                         <input type="checkbox" v-model="selectedRows" :value="row.id" class="w-4 h-4 cursor-pointer align-middle opacity-50 group-hover:opacity-100 transition-opacity" :class="{'opacity-100': selectedRows.includes(row.id)}">
@@ -175,10 +245,11 @@
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.date" class="nav-input w-full border p-1" placeholder="日期"></td>
                     <td><input list="client-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.client_name" class="nav-input w-full border p-1" placeholder="客戶名稱"></td>
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.bill_no" class="nav-input w-full border p-1" placeholder="提單號碼"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.pieces" class="nav-input w-full border p-1 text-right" placeholder="箱數"></td>
+                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" @input="previewFreight(newRow)" type="text" v-model.number="newRow.pieces" class="nav-input w-full border p-1 text-right" placeholder="箱數"></td>
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.weight" class="nav-input w-full border p-1 text-right" placeholder="重量"></td>
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" @input="isAmountManual = true" type="text" v-model.number="newRow.amount" class="nav-input w-full border p-1 text-right" placeholder="金額"></td>
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.forklift_fee" class="nav-input w-full border p-1 text-right" placeholder="堆高機"></td>
+                    <td><input list="location-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.location" class="nav-input w-full border p-1" placeholder="地點"></td>
                     <td><input list="remark-options" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.remark" class="nav-input w-full border p-1" placeholder="備註"></td>
                     <td></td>
                     <td class="text-center">
@@ -197,17 +268,19 @@
     </div>
 
     <!-- Bottom Controls -->
-    <div class="mt-4 flex justify-end p-3 bg-gray-50 rounded border border-gray-300 shadow-sm">
-        <button v-if="selectedRows.length > 0" @click="deleteSelected" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
-            刪除選取項目 (@{{ selectedRows.length }})
-        </button>
-    </div>
-
-    <!-- Undo Toast Notification -->
-    
-    <!-- Bottom Controls -->
-    <div class="mt-4 p-4 bg-gray-50 border border-gray-300 rounded-lg shadow-sm flex flex-wrap gap-4 items-center justify-start">
-        
+    <div class="mt-4 p-4 bg-gray-50 border border-gray-300 rounded-lg shadow-sm">
+        <div class="flex flex-wrap gap-4 items-center justify-between">
+            <div class="flex gap-4 items-center">
+                <span class="text-gray-700 font-bold text-lg">快速排序：</span>
+                <button @click="sortBy('bill_no')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
+                    <span>依帳單編號排序</span>
+                    <span v-if="sortState.column === 'bill_no'" class="text-xs bg-indigo-700 px-1 rounded">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
+                </button>
+                <button @click="resetView" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
+                    <span>恢復介面</span>
+                </button>
+            
+                
             
             <button @click="scrollToTop" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
@@ -223,6 +296,8 @@
                 刪除選取項目 (@{{ selectedRows.length }})
             </button>
 
+            </div>
+        </div>
     </div>
 
     <div v-if="showToast" class="fixed bottom-4 right-4 bg-gray-800 text-white px-6 py-3 rounded shadow-lg flex items-center gap-4 z-50 transition-opacity duration-300">
@@ -247,6 +322,129 @@
             };
             
             const isAmountManual = ref(false);
+            
+            const sortState = ref({ column: null, order: 'asc' });
+
+            const resetView = async () => {
+                sortState.value = { column: null, order: 'asc' };
+                selectedRows.value = [];
+                await fetchData();
+                
+                toastMessage.value = `介面已恢復`;
+                showToast.value = true;
+                setTimeout(() => { showToast.value = false; }, 3000);
+            };
+
+            const sortBy = (column) => {
+                if (sortState.value.column === column) {
+                    sortState.value.order = sortState.value.order === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortState.value.column = column;
+                    sortState.value.order = 'asc';
+                }
+
+                const groups = [];
+                let i = 0;
+                while (i < tableData.value.length) {
+                    const row = tableData.value[i];
+                    let endIdx = i;
+                    while (endIdx < tableData.value.length - 1) {
+                        const curr = tableData.value[endIdx];
+                        if (curr.remark && (curr.remark.includes('同下批') || curr.remark.includes('及下批') || curr.remark.includes('一齊'))) {
+                            const next = tableData.value[endIdx + 1];
+                            if (next.date === row.date && next.client_name === row.client_name) {
+                                endIdx++;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    groups.push(tableData.value.slice(i, endIdx + 1));
+                    i = endIdx + 1;
+                }
+
+                // If multiple rows are selected, only sort those groups. Otherwise, sort all groups.
+                const hasSelection = selectedRows.value.length > 1;
+                
+                const groupsToSort = [];
+                const indicesToSort = [];
+
+                groups.forEach((group, index) => {
+                    if (!hasSelection || group.some(row => selectedRows.value.includes(row.id))) {
+                        groupsToSort.push(group);
+                        indicesToSort.push(index);
+                    }
+                });
+
+                groupsToSort.sort((groupA, groupB) => {
+                    let valA, valB;
+                    
+                    if (['amount', 'pieces', 'weight'].includes(column)) {
+                        valA = groupA.reduce((sum, r) => sum + (parseFloat(r[column]) || 0), 0);
+                        valB = groupB.reduce((sum, r) => sum + (parseFloat(r[column]) || 0), 0);
+                    } else {
+                        valA = groupA[0][column] || '';
+                        valB = groupB[0][column] || '';
+                    }
+
+                    let cmp = 0;
+                    if (typeof valA === 'number' && typeof valB === 'number') {
+                        cmp = valA - valB;
+                    } else {
+                        cmp = valA.toString().localeCompare(valB.toString(), undefined, { numeric: true, sensitivity: 'base' });
+                    }
+
+                    if (cmp !== 0) {
+                        return sortState.value.order === 'asc' ? cmp : -cmp;
+                    }
+                    return 0;
+                });
+
+                if (hasSelection) {
+                    groupsToSort.forEach(group => {
+                        if (group.length > 1) {
+                            const originalIds = group.map(r => r.id);
+                            const originalRemarks = group.map(r => r.remark);
+                            
+                            group.sort((rowA, rowB) => {
+                                let valA = rowA[column] || '';
+                                let valB = rowB[column] || '';
+                                let cmp = 0;
+                                if (typeof valA === 'number' && typeof valB === 'number') {
+                                    cmp = valA - valB;
+                                } else {
+                                    cmp = valA.toString().localeCompare(valB.toString(), undefined, { numeric: true, sensitivity: 'base' });
+                                }
+                                if (cmp !== 0) {
+                                    return sortState.value.order === 'asc' ? cmp : -cmp;
+                                }
+                                return 0;
+                            });
+
+                            group.forEach((r, i) => {
+                                r.id = originalIds[i];
+                                r.remark = originalRemarks[i];
+                            });
+                        }
+                    });
+                }
+
+                for (let j = 0; j < indicesToSort.length; j++) {
+                    groups[indicesToSort[j]] = groupsToSort[j];
+                }
+
+                tableData.value = groups.flat();
+
+                if (hasSelection) {
+                    groupsToSort.forEach(group => {
+                        if (group.length > 1) {
+                            recalculateAndSave(group[0]);
+                        }
+                    });
+                }
+            };
             
             const handleArrowKeys = (e) => {
                 if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'].includes(e.key)) return;
@@ -393,6 +591,11 @@
                     const textToCheck = (row.location || '') + ' ' + (row.remark || '');
                     const newAmount = calculateFreight(row.weight, textToCheck);
                     if (newAmount > 0) row.amount = newAmount;
+                    
+                    const newForklift = calculateForkliftFee(row.weight, row.pieces);
+                    if (newForklift > 0) row.forklift_fee = newForklift;
+                    else if (newForklift === -1 || newForklift === 0) row.forklift_fee = null;
+                    
                     await updateRow(row);
                     return;
                 }
@@ -421,14 +624,24 @@
                 
                 const targetIndex = tongXiaPiIndex !== -1 ? tongXiaPiIndex : maxWeightIndex;
                 
+                let totalPieces = 0;
+                for (let i = 0; i < group.length; i++) {
+                    totalPieces += parseInt(group[i].pieces) || 0;
+                }
+                
                 const newAmount = calculateFreight(totalWeight, combinedText);
                 const finalAmount = newAmount > 0 ? newAmount : 0;
+                
+                const newForklift = calculateForkliftFee(totalWeight, totalPieces);
                 
                 for (let i = 0; i < group.length; i++) {
                     if (i === targetIndex) {
                         group[i].amount = finalAmount;
+                        if (newForklift > 0) group[i].forklift_fee = newForklift;
+                        else if (newForklift === -1 || newForklift === 0) group[i].forklift_fee = null;
                     } else {
                         group[i].amount = 0;
+                        group[i].forklift_fee = null;
                     }
                     await updateRow(group[i]);
                 }
@@ -620,11 +833,20 @@
                 return basePrice;
             };
 
-            watch([() => newRow.value.weight, () => newRow.value.location, () => newRow.value.remark], ([newWeight, newLoc, newRemark]) => {
+            watch([() => newRow.value.weight, () => newRow.value.location, () => newRow.value.remark, () => newRow.value.pieces], ([newWeight, newLoc, newRemark, newPieces]) => {
                 if (newRow.value.weight) {
                     newRow.value.weight = Math.round(newRow.value.weight);
                     newWeight = newRow.value.weight;
                 }
+                
+                // Calculate forklift fee
+                const newForklift = calculateForkliftFee(newWeight, newPieces);
+                if (newForklift > 0) {
+                    newRow.value.forklift_fee = newForklift;
+                } else if (newForklift === -1 || newForklift === 0) {
+                    newRow.value.forklift_fee = null;
+                }
+                
                 if (isAmountManual.value) return;
                 const textToCheck = (newLoc || '') + ' ' + (newRemark || '');
                 const newAmount = calculateFreight(newWeight, textToCheck);
@@ -634,6 +856,19 @@
                     newRow.value.amount = 0;
                 }
             });
+
+
+            const calculateForkliftFee = (weight, pieces) => {
+                weight = parseFloat(weight) || 0;
+                pieces = parseInt(pieces) || 0;
+                if (weight <= 0 && pieces <= 0) return 0;
+                
+                if (weight >= 2000) return -1; // 另計 (we use >= 2000 just in case, wait, > 2000)
+                if (weight >= 1000) return 500;
+                if (pieces >= 4) return 500;
+                if (weight >= 100) return 250;
+                return 0;
+            };
 
             const previewFreight = (row) => {
                 const group = getGroupRows(row);
@@ -645,6 +880,11 @@
                     } else if (newAmount === -1) {
                         row.amount = 0;
                     }
+                    
+                    const newForklift = calculateForkliftFee(row.weight, row.pieces);
+                    if (newForklift > 0) row.forklift_fee = newForklift;
+                    else if (newForklift === -1) row.forklift_fee = null;
+                    else if (newForklift === 0) row.forklift_fee = null;
                     return;
                 }
                 
@@ -722,6 +962,7 @@
                         pieces: newRow.value.pieces || 0,
                         weight: newRow.value.weight || 0,
                         forklift_fee: newRow.value.forklift_fee || 0,
+                        location: newRow.value.location || '',
                         remark: newRow.value.remark || '',
                         is_client_data: false,
                         client_code: '639'
@@ -746,6 +987,7 @@
                         newRow.value.pieces = null;
                         newRow.value.weight = null;
                         newRow.value.forklift_fee = null;
+                        newRow.value.location = '';
                         newRow.value.remark = '';
                         isAmountManual.value = false;
                         
@@ -877,7 +1119,7 @@
                 const startColIndex = inputsInRow.indexOf(target);
                 if (startColIndex === -1) return;
 
-                const fields = ['date', 'client_name', 'bill_no', 'pieces', 'weight', 'amount', 'location', 'remark'];
+                const fields = ['date', 'client_name', 'bill_no', 'pieces', 'weight', 'amount', 'forklift_fee', 'location', 'remark'];
                 
                 const isNewRowTr = tr.classList.contains('bg-blue-50');
                 let rowIndex = isNewRowTr ? tableData.value.length : tableData.value.findIndex(row => row.id == tr.getAttribute('data-id'));
@@ -944,6 +1186,15 @@
                                 targetRow.amount = amt;
                             } else if (amt === -1) {
                                 targetRow.amount = 0;
+                            }
+                        }
+                        
+                        if (!pastedFields.includes('forklift_fee')) {
+                            const newForklift = calculateForkliftFee(targetRow.weight, targetRow.pieces);
+                            if (newForklift > 0) {
+                                targetRow.forklift_fee = newForklift;
+                            } else if (newForklift === -1 || newForklift === 0) {
+                                targetRow.forklift_fee = null;
                             }
                         }
 
@@ -1095,7 +1346,7 @@
             const clearAllData = async () => {
                 if (!confirm('您確定要清空畫面上「所有」的資料嗎？這個動作無法復原！')) return;
                 try {
-                    const response = await fetch('/api/waybills/truncate?client_code=225', {
+                    const response = await fetch('/api/waybills/truncate?client_code=639', {
                         method: 'DELETE'
                     });
                     if (response.ok) {
@@ -1219,7 +1470,7 @@
                     ["", "", "欣 華 運 通 有 限 公 司"],
                     ["", "", "115 年 5 月  運費明細表"],
                     ["#639大鴻"],
-                    ["日期", "客戶名稱", "提單號碼", "箱數", "重量", "金額", "堆高機", "備註"]
+                    ["日期", "客戶名稱", "提單號碼", "箱數", "重量", "金額", "堆高機", "地點", "備註"]
                 ];
                 
                 tableData.value.forEach(row => {
@@ -1231,11 +1482,12 @@
                         row.weight || '',
                         row.amount || '',
                         row.forklift_fee || '',
+                        row.location || '',
                         row.remark || ''
                     ]);
                 });
                 
-                aoa.push(["總計", "", "", "", "", totalAmount.value, "", ""]);
+                aoa.push(["總計", "", "", "", "", totalAmount.value, "", "", ""]);
                 
                 const ws = XLSX.utils.aoa_to_sheet(aoa);
                 ws['!cols'] = [
@@ -1245,6 +1497,7 @@
                     { wch: 12 }, // Pieces
                     { wch: 12 }, // Weight
                     { wch: 15 }, // Amount
+                    { wch: 15 }, // Forklift
                     { wch: 18 }, // Location
                     { wch: 30 }  // Remark
                 ];
@@ -1388,7 +1641,12 @@
                 toastMessage,
                 undoAction,
                 handleRemarkChange,
-                previewFreight
+                previewFreight,
+                sortState,
+                resetView,
+                sortBy,
+                isAmountManual,
+                recalculateAndSave
             };
         }
     }).mount('#app');

@@ -77,7 +77,13 @@
     
     <!-- Controls Section -->
     <div class="mb-4 flex justify-between items-center bg-gray-50 p-3 rounded border w-full">
-        <div>
+        <div class="flex gap-2">
+            <a href="/" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+                回首頁
+            </a>
             <button @click="clearAllData" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0">
                 清空全部資料
             </button>
@@ -124,6 +130,68 @@
     </datalist>
     <datalist id="location-names">
         <option v-for="loc in uniqueLocations" :key="loc" :value="loc"></option>
+        <!-- 台北市區 -->
+        <option value="台北"></option>
+        <!-- 近郊 (+220) -->
+        <option value="景美"></option>
+        <option value="天母"></option>
+        <option value="士林"></option>
+        <option value="大直"></option>
+        <option value="內湖"></option>
+        <option value="松山"></option>
+        <option value="萬華"></option>
+        <option value="社子"></option>
+        <!-- 近郊 (+330) -->
+        <option value="三重"></option>
+        <option value="中和"></option>
+        <option value="永和"></option>
+        <option value="南港"></option>
+        <option value="板橋"></option>
+        <option value="石牌"></option>
+        <option value="北投"></option>
+        <option value="木柵"></option>
+        <option value="新店"></option>
+        <option value="蘆洲"></option>
+        <!-- 近郊 (+440) -->
+        <option value="五股"></option>
+        <option value="泰山"></option>
+        <option value="新莊"></option>
+        <option value="樹林"></option>
+        <!-- 近郊 (+550) -->
+        <option value="汐止"></option>
+        <option value="土城"></option>
+        <option value="楊梅"></option>
+        <option value="深坑"></option>
+        <!-- 近郊 (+660) -->
+        <option value="淡水"></option>
+        <option value="八里"></option>
+        <!-- 桃園區 -->
+        <option value="蘆竹"></option>
+        <option value="大園"></option>
+        <option value="中壢"></option>
+        <option value="內壢"></option>
+        <option value="林口"></option>
+        <option value="龜山"></option>
+        <option value="桃園"></option>
+        <!-- 桃園遠區 -->
+        <option value="新屋"></option>
+        <option value="八德"></option>
+        <option value="觀音"></option>
+        <option value="平鎮"></option>
+        <option value="龍潭"></option>
+        <option value="三峽"></option>
+        <option value="鶯歌"></option>
+        <!-- 遠區 -->
+        <option value="新竹"></option>
+        <option value="湖口"></option>
+        <option value="基隆"></option>
+        <option value="大溪"></option>
+        <option value="新豐"></option>
+        <option value="七堵"></option>
+        <option value="瑞芳"></option>
+        <!-- 特殊 -->
+        <option value="冷泉港"></option>
+        <option value="台中"></option>
     </datalist>
     <datalist id="remark-options">
         <option value="同下批"></option>
@@ -1392,7 +1460,7 @@
             const clearAllData = async () => {
                 if (!confirm('您確定要清空畫面上「所有」的資料嗎？這個動作無法復原！')) return;
                 try {
-                    const response = await fetch('/api/waybills/truncate', {
+                    const response = await fetch('/api/waybills/truncate?client_code=206', {
                         method: 'DELETE'
                     });
                     if (response.ok) {

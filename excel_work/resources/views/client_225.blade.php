@@ -77,7 +77,13 @@
     
     <!-- Controls Section -->
     <div class="mb-4 flex justify-between items-center bg-gray-50 p-3 rounded border w-full">
-        <div>
+        <div class="flex gap-2">
+            <a href="/" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+                回首頁
+            </a>
             <button @click="clearAllData" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0">
                 清空全部資料
             </button>
@@ -124,6 +130,68 @@
     </datalist>
     <datalist id="location-names">
         <option v-for="loc in uniqueLocations" :key="loc" :value="loc"></option>
+        <!-- 台北市區 -->
+        <option value="台北"></option>
+        <!-- 近郊 (+220) -->
+        <option value="景美"></option>
+        <option value="天母"></option>
+        <option value="士林"></option>
+        <option value="大直"></option>
+        <option value="內湖"></option>
+        <option value="松山"></option>
+        <option value="萬華"></option>
+        <option value="社子"></option>
+        <!-- 近郊 (+330) -->
+        <option value="三重"></option>
+        <option value="中和"></option>
+        <option value="永和"></option>
+        <option value="南港"></option>
+        <option value="板橋"></option>
+        <option value="石牌"></option>
+        <option value="北投"></option>
+        <option value="木柵"></option>
+        <option value="新店"></option>
+        <option value="蘆洲"></option>
+        <!-- 近郊 (+440) -->
+        <option value="五股"></option>
+        <option value="泰山"></option>
+        <option value="新莊"></option>
+        <option value="樹林"></option>
+        <!-- 近郊 (+550) -->
+        <option value="汐止"></option>
+        <option value="土城"></option>
+        <option value="楊梅"></option>
+        <option value="深坑"></option>
+        <!-- 近郊 (+660) -->
+        <option value="淡水"></option>
+        <option value="八里"></option>
+        <!-- 桃園區 -->
+        <option value="蘆竹"></option>
+        <option value="大園"></option>
+        <option value="中壢"></option>
+        <option value="內壢"></option>
+        <option value="林口"></option>
+        <option value="龜山"></option>
+        <option value="桃園"></option>
+        <!-- 桃園遠區 -->
+        <option value="新屋"></option>
+        <option value="八德"></option>
+        <option value="觀音"></option>
+        <option value="平鎮"></option>
+        <option value="龍潭"></option>
+        <option value="三峽"></option>
+        <option value="鶯歌"></option>
+        <!-- 遠區 -->
+        <option value="新竹"></option>
+        <option value="湖口"></option>
+        <option value="基隆"></option>
+        <option value="大溪"></option>
+        <option value="新豐"></option>
+        <option value="七堵"></option>
+        <option value="瑞芳"></option>
+        <!-- 特殊 -->
+        <option value="冷泉港"></option>
+        <option value="台中"></option>
     </datalist>
     <datalist id="remark-options">
         <option value="同下批"></option>
@@ -138,14 +206,14 @@
         <table class="text-left border-collapse excel-table" :style="{ fontSize: fontSize + 'px' }" ref="excelTable">
             <thead>
                 <tr class="bg-gray-100 border-b-2 border-black">
-                    <th style="width: 100px;">日期</th>
-                    <th style="width: 100px;">客戶名稱</th>
-                    <th style="width: 150px;">提單號碼</th>
-                    <th style="width: 60px;" class="text-right">件數</th>
-                    <th style="width: 60px;" class="text-right">重量</th>
-                    <th style="width: 100px;" class="text-right">運費</th>
-                    <th style="width: 100px;">地點</th>
-                    <th style="width: 150px;">備註</th>
+                    <th @click="sortBy('date')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">日期</th>
+                    <th @click="sortBy('client_name')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">客戶名稱</th>
+                    <th @click="sortBy('bill_no')" style="width: 150px;" class="cursor-pointer hover:bg-gray-200 select-none">提單號碼</th>
+                    <th @click="sortBy('pieces')" style="width: 60px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">件數</th>
+                    <th @click="sortBy('weight')" style="width: 60px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">重量</th>
+                    <th @click="sortBy('amount')" style="width: 100px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">運費</th>
+                    <th @click="sortBy('location')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">地點</th>
+                    <th @click="sortBy('remark')" style="width: 150px;" class="cursor-pointer hover:bg-gray-200 select-none">備註</th>
                     <th style="width: 60px;" class="text-right">總重</th>
                     <th style="width: 40px;" class="text-center">
                         <input type="checkbox" @change="toggleAllSelection" :checked="isAllSelected" class="w-4 h-4 cursor-pointer align-middle" title="全選/取消全選">
@@ -197,17 +265,19 @@
     </div>
 
     <!-- Bottom Controls -->
-    <div class="mt-4 flex justify-end p-3 bg-gray-50 rounded border border-gray-300 shadow-sm">
-        <button v-if="selectedRows.length > 0" @click="deleteSelected" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
-            刪除選取項目 (@{{ selectedRows.length }})
-        </button>
-    </div>
-
-    <!-- Undo Toast Notification -->
-    
-    <!-- Bottom Controls -->
-    <div class="mt-4 p-4 bg-gray-50 border border-gray-300 rounded-lg shadow-sm flex flex-wrap gap-4 items-center justify-start">
-        
+    <div class="mt-4 p-4 bg-gray-50 border border-gray-300 rounded-lg shadow-sm">
+        <div class="flex flex-wrap gap-4 items-center justify-between">
+            <div class="flex gap-4 items-center">
+                <span class="text-gray-700 font-bold text-lg">快速排序：</span>
+                <button @click="sortBy('bill_no')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
+                    <span>依帳單編號排序</span>
+                    <span v-if="sortState.column === 'bill_no'" class="text-xs bg-indigo-700 px-1 rounded">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
+                </button>
+                <button @click="resetView" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
+                    <span>恢復介面</span>
+                </button>
+            
+                
             
             <button @click="scrollToTop" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
@@ -223,6 +293,8 @@
                 刪除選取項目 (@{{ selectedRows.length }})
             </button>
 
+            </div>
+        </div>
     </div>
 
     <div v-if="showToast" class="fixed bottom-4 right-4 bg-gray-800 text-white px-6 py-3 rounded shadow-lg flex items-center gap-4 z-50 transition-opacity duration-300">
@@ -248,6 +320,129 @@
             };
             
             const isAmountManual = ref(false);
+            
+            const sortState = ref({ column: null, order: 'asc' });
+
+            const resetView = async () => {
+                sortState.value = { column: null, order: 'asc' };
+                selectedRows.value = [];
+                await fetchData();
+                
+                toastMessage.value = `介面已恢復`;
+                showToast.value = true;
+                setTimeout(() => { showToast.value = false; }, 3000);
+            };
+
+            const sortBy = (column) => {
+                if (sortState.value.column === column) {
+                    sortState.value.order = sortState.value.order === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortState.value.column = column;
+                    sortState.value.order = 'asc';
+                }
+
+                const groups = [];
+                let i = 0;
+                while (i < tableData.value.length) {
+                    const row = tableData.value[i];
+                    let endIdx = i;
+                    while (endIdx < tableData.value.length - 1) {
+                        const curr = tableData.value[endIdx];
+                        if (curr.remark && (curr.remark.includes('同下批') || curr.remark.includes('及下批') || curr.remark.includes('一齊'))) {
+                            const next = tableData.value[endIdx + 1];
+                            if (next.date === row.date && next.client_name === row.client_name) {
+                                endIdx++;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    groups.push(tableData.value.slice(i, endIdx + 1));
+                    i = endIdx + 1;
+                }
+
+                // If multiple rows are selected, only sort those groups. Otherwise, sort all groups.
+                const hasSelection = selectedRows.value.length > 1;
+                
+                const groupsToSort = [];
+                const indicesToSort = [];
+
+                groups.forEach((group, index) => {
+                    if (!hasSelection || group.some(row => selectedRows.value.includes(row.id))) {
+                        groupsToSort.push(group);
+                        indicesToSort.push(index);
+                    }
+                });
+
+                groupsToSort.sort((groupA, groupB) => {
+                    let valA, valB;
+                    
+                    if (['amount', 'pieces', 'weight'].includes(column)) {
+                        valA = groupA.reduce((sum, r) => sum + (parseFloat(r[column]) || 0), 0);
+                        valB = groupB.reduce((sum, r) => sum + (parseFloat(r[column]) || 0), 0);
+                    } else {
+                        valA = groupA[0][column] || '';
+                        valB = groupB[0][column] || '';
+                    }
+
+                    let cmp = 0;
+                    if (typeof valA === 'number' && typeof valB === 'number') {
+                        cmp = valA - valB;
+                    } else {
+                        cmp = valA.toString().localeCompare(valB.toString(), undefined, { numeric: true, sensitivity: 'base' });
+                    }
+
+                    if (cmp !== 0) {
+                        return sortState.value.order === 'asc' ? cmp : -cmp;
+                    }
+                    return 0;
+                });
+
+                if (hasSelection) {
+                    groupsToSort.forEach(group => {
+                        if (group.length > 1) {
+                            const originalIds = group.map(r => r.id);
+                            const originalRemarks = group.map(r => r.remark);
+                            
+                            group.sort((rowA, rowB) => {
+                                let valA = rowA[column] || '';
+                                let valB = rowB[column] || '';
+                                let cmp = 0;
+                                if (typeof valA === 'number' && typeof valB === 'number') {
+                                    cmp = valA - valB;
+                                } else {
+                                    cmp = valA.toString().localeCompare(valB.toString(), undefined, { numeric: true, sensitivity: 'base' });
+                                }
+                                if (cmp !== 0) {
+                                    return sortState.value.order === 'asc' ? cmp : -cmp;
+                                }
+                                return 0;
+                            });
+
+                            group.forEach((r, i) => {
+                                r.id = originalIds[i];
+                                r.remark = originalRemarks[i];
+                            });
+                        }
+                    });
+                }
+
+                for (let j = 0; j < indicesToSort.length; j++) {
+                    groups[indicesToSort[j]] = groupsToSort[j];
+                }
+
+                tableData.value = groups.flat();
+
+                if (hasSelection) {
+                    groupsToSort.forEach(group => {
+                        if (group.length > 1) {
+                            recalculateAndSave(group[0]);
+                        }
+                    });
+                }
+            };
             
             const handleArrowKeys = (e) => {
                 if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'].includes(e.key)) return;
@@ -1408,6 +1603,7 @@
                             if (Object.keys(ws[cell_ref].s.border).length === 0) {
                                 delete ws[cell_ref].s.border;
                             }
+                        }
                     }
                 }
                 
@@ -1445,9 +1641,14 @@
                 isFillHighlighted,
                 showToast,
                 toastMessage,
+                isAmountManual,
+                recalculateAndSave,
                 undoAction,
                 handleRemarkChange,
-                previewFreight
+                previewFreight,
+                sortState,
+                resetView,
+                sortBy
             };
         }
     }).mount('#app');

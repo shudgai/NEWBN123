@@ -1,311 +1,3 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>444 飛弘客戶資料</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Vue 3 -->
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <style>
-        [v-cloak] { display: none; }
-        /* Custom Excel-like styling */
-        .excel-table {
-            width: 100%;
-        }
-        .excel-table th, .excel-table td {
-            border: 1px solid #000;
-            padding: 4px 8px;
-            white-space: nowrap;
-        }
-        .excel-table th {
-            font-weight: bold;
-            background-color: #fff;
-            position: relative;
-            user-select: none;
-        }
-        .resizer {
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 8px;
-            height: 100%;
-            cursor: col-resize;
-            z-index: 10;
-            background-color: transparent;
-            transition: background-color 0.2s;
-        }
-        .resizer:hover, .resizer.resizing {
-            background-color: rgba(59, 130, 246, 0.5); /* blue-500 with opacity */
-        }
-        .nav-input {
-            font-family: inherit;
-            font-size: inherit;
-            min-width: 0;
-        }
-        .fill-handle {
-            position: absolute;
-            bottom: -2px;
-            right: -2px;
-            width: 8px;
-            height: 8px;
-            background-color: #3b82f6; /* blue-500 */
-            border: 1px solid white;
-            cursor: crosshair;
-            display: none;
-            z-index: 10;
-        }
-        .group:focus-within .fill-handle {
-            display: block;
-        }
-        .fill-highlight {
-            outline: 2px dashed #3b82f6;
-            outline-offset: -2px;
-            background-color: rgba(59, 130, 246, 0.1) !important;
-        }
-        .highlight-yellow {
-            background-color: #FFFF00 !important;
-        }
-        .text-right { text-align: right; }
-        .text-center { text-align: center; }
-    </style>
-</head>
-<body class="bg-gray-100 p-8 font-sans antialiased text-black">
-
-<div id="app" v-cloak class="max-w-7xl mx-auto bg-white p-8 shadow-sm">
-    
-    <!-- Controls Section -->
-    <div class="mb-4 flex justify-between items-center bg-gray-50 p-3 rounded border w-full">
-        <div class="flex gap-2">
-            <a href="/" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0 flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                </svg>
-                回首頁
-            </a>
-            <button @click="clearAllData" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0">
-                清空全部資料
-            </button>
-        </div>
-        <div class="flex items-center justify-center gap-4">
-            <label for="fontSizeSlider" class="font-bold text-sm text-gray-700 whitespace-nowrap">字體大小調整 (目前: @{{ fontSize }}px)</label>
-            <input type="range" id="fontSizeSlider" v-model="fontSize" min="10" max="24" step="1" class="w-32 md:w-48 cursor-pointer focus:outline-none focus:ring-0">
-        </div>
-        <div>
-            <button @click="scrollToBottom" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2 focus:outline-none focus:ring-0">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
-                移至最底
-            </button>
-        </div>
-    </div>
-
-    <!-- Excel Header Section -->
-    <div class="mb-6 grid grid-cols-2 gap-4 text-sm" :style="{ fontSize: fontSize + 'px' }">
-        <div>
-            <div class="flex mb-1">
-                <div class="font-bold w-24">運送公司：</div>
-                <div>欣華運通有限公司</div>
-            </div>
-            <div class="flex">
-                <div class="font-bold w-24">運送日期：</div>
-                <div>115/05/01-115/05/31</div>
-            </div>
-        </div>
-        <div>
-            <div class="flex mb-1">
-                <div class="font-bold w-24">客戶名稱：</div>
-                <div>444 飛弘</div>
-            </div>
-            <div class="flex">
-                <div class="font-bold w-24">製表日期：</div>
-                <div></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Data Table -->
-    <datalist id="client-names">
-        <option v-for="name in uniqueClientNames" :key="name" :value="name"></option>
-    </datalist>
-    <datalist id="location-names">
-        <option v-for="loc in uniqueLocations" :key="loc" :value="loc"></option>
-        <!-- 台北市區 -->
-        <option value="台北"></option>
-        <!-- 近郊 (+220) -->
-        <option value="景美"></option>
-        <option value="天母"></option>
-        <option value="士林"></option>
-        <option value="大直"></option>
-        <option value="內湖"></option>
-        <option value="松山"></option>
-        <option value="萬華"></option>
-        <option value="社子"></option>
-        <!-- 近郊 (+330) -->
-        <option value="三重"></option>
-        <option value="中和"></option>
-        <option value="永和"></option>
-        <option value="南港"></option>
-        <option value="板橋"></option>
-        <option value="石牌"></option>
-        <option value="北投"></option>
-        <option value="木柵"></option>
-        <option value="新店"></option>
-        <option value="蘆洲"></option>
-        <!-- 近郊 (+440) -->
-        <option value="五股"></option>
-        <option value="泰山"></option>
-        <option value="新莊"></option>
-        <option value="樹林"></option>
-        <!-- 近郊 (+550) -->
-        <option value="汐止"></option>
-        <option value="土城"></option>
-        <option value="楊梅"></option>
-        <option value="深坑"></option>
-        <!-- 近郊 (+660) -->
-        <option value="淡水"></option>
-        <option value="八里"></option>
-        <!-- 桃園區 -->
-        <option value="蘆竹"></option>
-        <option value="大園"></option>
-        <option value="中壢"></option>
-        <option value="內壢"></option>
-        <option value="林口"></option>
-        <option value="龜山"></option>
-        <option value="桃園"></option>
-        <!-- 桃園遠區 -->
-        <option value="新屋"></option>
-        <option value="八德"></option>
-        <option value="觀音"></option>
-        <option value="平鎮"></option>
-        <option value="龍潭"></option>
-        <option value="三峽"></option>
-        <option value="鶯歌"></option>
-        <!-- 遠區 -->
-        <option value="新竹"></option>
-        <option value="湖口"></option>
-        <option value="基隆"></option>
-        <option value="大溪"></option>
-        <option value="新豐"></option>
-        <option value="七堵"></option>
-        <option value="瑞芳"></option>
-        <!-- 特殊 -->
-        <option value="冷泉港"></option>
-        <option value="台中"></option>
-    </datalist>
-    <datalist id="remark-options">
-        <option value="同下批"></option>
-        <option value="及下批"></option>
-        <option value="共"></option>
-        <option value="3.49噸車"></option>
-        <option value="6.8噸車"></option>
-        <option value="15噸車"></option>
-        <option value="17噸車"></option>
-    </datalist>
-    <div class="overflow-x-auto border-t-2 border-b-2 border-black py-1">
-        <table class="text-left border-collapse excel-table" :style="{ fontSize: fontSize + 'px' }" ref="excelTable">
-            <thead>
-                <tr class="bg-gray-100 border-b-2 border-black">
-                    <th @click="sortBy('date')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">日期</th>
-                    <th @click="sortBy('client_name')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">客戶名稱</th>
-                    <th @click="sortBy('bill_no')" style="width: 150px;" class="cursor-pointer hover:bg-gray-200 select-none">提單號碼</th>
-                    <th @click="sortBy('pieces')" style="width: 60px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">件數</th>
-                    <th @click="sortBy('weight')" style="width: 60px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">重量</th>
-                    <th @click="sortBy('amount')" style="width: 100px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">運費</th>
-                    <th @click="sortBy('location')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">地點</th>
-                    <th @click="sortBy('remark')" style="width: 150px;" class="cursor-pointer hover:bg-gray-200 select-none">備註</th>
-                    <th style="width: 60px;" class="text-right">總重</th>
-                    <th style="width: 40px;" class="text-center">
-                        <input type="checkbox" @change="toggleAllSelection" :checked="isAllSelected" class="w-4 h-4 cursor-pointer align-middle" title="全選/取消全選">
-                    </th>
-                </tr>
-            </thead>
-            <tbody @paste="handlePaste">
-                <!-- Data Rows -->
-                <tr v-for="(row, index) in tableData" :key="row.id || index" :data-id="row.id" class="border-b border-gray-300 hover:bg-gray-50">
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'date')}" :style="getCellStyle(row, 0)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.date" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'date', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'client_name')}" :style="getCellStyle(row, 1)"><input list="client-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.client_name" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'client_name', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'bill_no')}" :style="getCellStyle(row, 2)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.bill_no" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'bill_no', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}" :style="getCellStyle(row, 3)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}" :style="getCellStyle(row, 4)"><input autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
-                    <td class="p-0 text-right relative group" :class="{'fill-highlight': isFillHighlighted(index, 'amount')}" :style="getCellStyle(row, 5)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.amount" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'amount', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}" :style="getCellStyle(row, 6)"><input list="location-names" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}" :style="getCellStyle(row, 7)"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="handleRemarkChange(row, index)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
-                    <td class="p-1 text-right text-blue-600 font-bold bg-gray-50 align-middle">@{{ getGroupTotalWeight(row) }}</td>
-                    <td class="p-0 text-center align-middle relative group" :class="{'fill-highlight': isFillHighlighted(index, 'selected')}">
-                        <input type="checkbox" v-model="selectedRows" :value="row.id" class="w-4 h-4 cursor-pointer align-middle opacity-50 group-hover:opacity-100 transition-opacity" :class="{'opacity-100': selectedRows.includes(row.id)}">
-                        <div class="fill-handle" @mousedown="startFill(index, 'selected', $event)"></div>
-                    </td>
-                </tr>
-
-                <!-- Input Row (Moved to bottom) -->
-                <tr class="bg-blue-50 border-t-2 border-blue-200">
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.date" class="nav-input w-full border p-1" placeholder="日期"></td>
-                    <td><input list="client-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.client_name" class="nav-input w-full border p-1" placeholder="客戶名稱"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.bill_no" class="nav-input w-full border p-1" placeholder="提單號碼"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.pieces" class="nav-input w-full border p-1 text-right" placeholder="件數"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.weight" class="nav-input w-full border p-1 text-right" placeholder="重量"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" @input="isAmountManual = true" type="text" v-model.number="newRow.amount" class="nav-input w-full border p-1 text-right" placeholder="運費"></td>
-                    <td><input list="location-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.location" class="nav-input w-full border p-1" placeholder="地點"></td>
-                    <td><input list="remark-options" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.remark" class="nav-input w-full border p-1" placeholder="備註"></td>
-                    <td></td>
-                    <td class="text-center">
-                        <button @click="addRow" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm shadow">新增</button>
-                    </td>
-                </tr>
-
-                <!-- Total Row -->
-                <tr class="font-bold bg-gray-100 border-t-2 border-black">
-                    <td colspan="5" class="text-center">總計</td>
-                    <td class="text-right">@{{ totalAmount }}</td>
-                    <td colspan="4"></td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Bottom Controls -->
-    <div class="mt-4 p-4 bg-gray-50 border border-gray-300 rounded-lg shadow-sm">
-        <div class="flex flex-wrap gap-4 items-center justify-between">
-            <div class="flex gap-4 items-center">
-                <span class="text-gray-700 font-bold text-lg">快速排序：</span>
-                <button @click="sortBy('bill_no')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
-                    <span>依帳單編號排序</span>
-                    <span v-if="sortState.column === 'bill_no'" class="text-xs bg-indigo-700 px-1 rounded">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
-                </button>
-                <button @click="resetView" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
-                    <span>恢復介面</span>
-                </button>
-            
-                
-            
-            <button @click="scrollToTop" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
-                移至最上方
-            </button>
-            <a href="/" class="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded shadow transition-colors">
-                回首頁
-            </a>
-            <button @click="exportExcel" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
-                匯出 Excel
-            </button>
-            <button v-if="selectedRows.length > 0" @click="deleteSelected" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
-                刪除選取項目 (@{{ selectedRows.length }})
-            </button>
-
-            </div>
-        </div>
-    </div>
-
-    <div v-if="showToast" class="fixed bottom-4 right-4 bg-gray-800 text-white px-6 py-3 rounded shadow-lg flex items-center gap-4 z-50 transition-opacity duration-300">
-        <span>@{{ toastMessage }}</span>
-        <button @click="undoAction" class="text-yellow-400 font-bold hover:text-yellow-300 underline">復原 (Undo)</button>
-        <button @click="showToast = false" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
-    </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script>
     const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
 
     createApp({
@@ -494,10 +186,10 @@
                         amount: row.amount || 0,
                         pieces: row.pieces || 0,
                         weight: row.weight || 0,
-                        location: row.location || '',
+                        forklift_fee: row.forklift_fee || 0,
                         remark: row.remark || '',
                         is_client_data: row.is_client_data || false,
-                        client_code: '444'
+                        client_code: '639'
                     };
 
                     const response = await fetch(`/api/waybills/${row.id}`, {
@@ -726,9 +418,9 @@
                 pieces: null,
                 weight: null,
                 amount: null,
-                location: '',
+                forklift_fee: null,
                 remark: '',
-                client_code: '444'
+                client_code: '639'
             });
 
             const calculateFreight = (weight, remark) => {
@@ -875,7 +567,7 @@
 
             const fetchData = async () => {
                 try {
-                    const response = await fetch('/api/waybills?client_code=444');
+                    const response = await fetch('/api/waybills?client_code=639');
                     const data = await response.json();
                     tableData.value = data;
                 } catch (error) {
@@ -916,10 +608,10 @@
                         amount: newRow.value.amount || 0,
                         pieces: newRow.value.pieces || 0,
                         weight: newRow.value.weight || 0,
-                        location: newRow.value.location || '',
+                        forklift_fee: newRow.value.forklift_fee || 0,
                         remark: newRow.value.remark || '',
                         is_client_data: false,
-                        client_code: '444'
+                        client_code: '639'
                     };
 
                     const response = await fetch('/api/waybills', {
@@ -940,7 +632,7 @@
                         newRow.value.amount = null;
                         newRow.value.pieces = null;
                         newRow.value.weight = null;
-                        newRow.value.location = '';
+                        newRow.value.forklift_fee = null;
                         newRow.value.remark = '';
                         isAmountManual.value = false;
                         
@@ -1290,7 +982,7 @@
             const clearAllData = async () => {
                 if (!confirm('您確定要清空畫面上「所有」的資料嗎？這個動作無法復原！')) return;
                 try {
-                    const response = await fetch('/api/waybills/truncate?client_code=444', {
+                    const response = await fetch('/api/waybills/truncate?client_code=225', {
                         method: 'DELETE'
                     });
                     if (response.ok) {
@@ -1411,9 +1103,10 @@
                 }
                 
                 const aoa = [
-                    ["", "", "115 年 5 月  請求明細表"],
-                    ["444飛弘"],
-                    ["日期", "客戶名稱", "提單號碼", "件數", "重量", "運費", "地點", "備註"]
+                    ["", "", "欣 華 運 通 有 限 公 司"],
+                    ["", "", "115 年 5 月  運費明細表"],
+                    ["#639大鴻"],
+                    ["日期", "客戶名稱", "提單號碼", "箱數", "重量", "金額", "堆高機", "地點", "備註"]
                 ];
                 
                 tableData.value.forEach(row => {
@@ -1424,12 +1117,13 @@
                         row.pieces || '',
                         row.weight || '',
                         row.amount || '',
+                        row.forklift_fee || '',
                         row.location || '',
                         row.remark || ''
                     ]);
                 });
                 
-                aoa.push(["總計", "", "", "", "", totalAmount.value, "", ""]);
+                aoa.push(["總計", "", "", "", "", totalAmount.value, "", "", ""]);
                 
                 const ws = XLSX.utils.aoa_to_sheet(aoa);
                 ws['!cols'] = [
@@ -1439,13 +1133,16 @@
                     { wch: 12 }, // Pieces
                     { wch: 12 }, // Weight
                     { wch: 15 }, // Amount
+                    { wch: 15 }, // Forklift
                     { wch: 18 }, // Location
                     { wch: 30 }  // Remark
                 ];
                 
+                // Merge cells for title
                 if(!ws['!merges']) ws['!merges'] = [];
-                ws['!merges'].push({ s: {r:0, c:2}, e: {r:0, c:4} });
-                ws['!merges'].push({ s: {r:1, c:0}, e: {r:1, c:2} });
+                ws['!merges'].push({ s: {r:0, c:2}, e: {r:0, c:5} });
+                ws['!merges'].push({ s: {r:1, c:2}, e: {r:1, c:5} });
+                ws['!merges'].push({ s: {r:2, c:0}, e: {r:2, c:2} });
 
                 
                 // Add styles
@@ -1545,8 +1242,8 @@
                 }
                 
                 const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "請求明細");
-                XLSX.writeFile(wb, "444飛弘請求明細.xlsx");
+                XLSX.utils.book_append_sheet(wb, ws, "運費明細");
+                XLSX.writeFile(wb, "639大鴻運費明細.xlsx");
             };
 
             return {
@@ -1589,7 +1286,3 @@
             };
         }
     }).mount('#app');
-</script>
-
-</body>
-</html>

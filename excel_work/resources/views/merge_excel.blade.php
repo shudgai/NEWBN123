@@ -119,15 +119,26 @@
                         清空列表
                     </button>
                     <button 
-                        @click="submitMerge" 
+                        @click="submitMerge('download')" 
                         :disabled="isSubmitting"
                         class="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 text-sm flex-1 sm:flex-none"
                     >
-                        <svg v-if="isSubmitting" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <svg v-if="isSubmitting && currentAction === 'download'" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        <span>@{{ isSubmitting ? '合併中...' : '開始合併並下載' }}</span>
+                        <span>@{{ isSubmitting && currentAction === 'download' ? '處理中...' : '開始合併並下載' }}</span>
+                    </button>
+                    <button 
+                        @click="submitMerge('save')" 
+                        :disabled="isSubmitting"
+                        class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg shadow-md hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 text-sm flex-1 sm:flex-none"
+                    >
+                        <svg v-if="isSubmitting && currentAction === 'save'" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>@{{ isSubmitting && currentAction === 'save' ? '處理中...' : '合併並存入資料庫' }}</span>
                     </button>
                 </div>
             </div>
@@ -175,15 +186,26 @@
                     清空列表
                 </button>
                 <button 
-                    @click="submitMerge" 
+                    @click="submitMerge('download')" 
                     :disabled="isSubmitting"
                     class="px-8 py-2 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
-                    <svg v-if="isSubmitting" class="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <svg v-if="isSubmitting && currentAction === 'download'" class="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    <span>@{{ isSubmitting ? '合併中，請稍候...' : '開始合併並下載' }}</span>
+                    <span>@{{ isSubmitting && currentAction === 'download' ? '處理中...' : '開始合併並下載' }}</span>
+                </button>
+                <button 
+                    @click="submitMerge('save')" 
+                    :disabled="isSubmitting"
+                    class="px-8 py-2 bg-emerald-600 text-white font-bold rounded-lg shadow-md hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                    <svg v-if="isSubmitting && currentAction === 'save'" class="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>@{{ isSubmitting && currentAction === 'save' ? '處理中...' : '合併並存入資料庫' }}</span>
                 </button>
             </div>
         </div>
@@ -198,6 +220,7 @@
             const isDragging = ref(false);
             const files = ref([]);
             const isSubmitting = ref(false);
+            const currentAction = ref('download');
             const draggedIndex = ref(null);
             
             const settings = ref({
@@ -270,13 +293,19 @@
                 draggedIndex.value = null;
             };
 
-            const submitMerge = async () => {
+            const submitMerge = async (actionType = 'download') => {
                 if (files.value.length === 0) {
                     alert('請先選擇檔案');
                     return;
                 }
 
+                if (actionType === 'save' && settings.value.mode !== 'single') {
+                    alert('存入資料庫功能僅支援「合併成同一個工作表」模式');
+                    return;
+                }
+
                 isSubmitting.value = true;
+                currentAction.value = actionType;
                 
                 const formData = new FormData();
                 files.value.forEach((file, index) => {
@@ -284,6 +313,7 @@
                 });
                 formData.append('mode', settings.value.mode);
                 formData.append('skip_header', settings.value.skipHeader ? '1' : '0');
+                formData.append('action', actionType);
 
                 // CSRF Token
                 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
@@ -301,30 +331,36 @@
                         throw new Error('Server returned ' + response.status);
                     }
 
-                    // Handle file download
-                    const blob = await response.blob();
-                    const contentDisposition = response.headers.get('Content-Disposition');
-                    let filename = 'merged.xlsx';
-                    if (contentDisposition) {
-                        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-                        if (filenameMatch && filenameMatch.length === 2)
-                            filename = decodeURIComponent(filenameMatch[1]);
-                    }
+                    if (actionType === 'save') {
+                        const result = await response.json();
+                        alert(result.message);
+                    } else {
+                        // Handle file download
+                        const blob = await response.blob();
+                        const contentDisposition = response.headers.get('Content-Disposition');
+                        let filename = 'merged.xlsx';
+                        if (contentDisposition) {
+                            const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+                            if (filenameMatch && filenameMatch.length === 2)
+                                filename = decodeURIComponent(filenameMatch[1]);
+                        }
 
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    window.URL.revokeObjectURL(url);
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+                    }
                     
                 } catch (error) {
                     console.error('Error merging files:', error);
                     alert('合併過程中發生錯誤，請稍後再試。\n' + error.message);
                 } finally {
                     isSubmitting.value = false;
+                    currentAction.value = 'download';
                 }
             };
 
@@ -333,6 +369,7 @@
                 files,
                 settings,
                 isSubmitting,
+                currentAction,
                 draggedIndex,
                 handleDrop,
                 handleFileSelect,

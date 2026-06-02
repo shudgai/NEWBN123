@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>444 飛弘客戶資料</title>
+    <title>282 協航客戶資料</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Vue 3 -->
@@ -115,7 +115,7 @@
         <div>
             <div class="flex mb-1">
                 <div class="font-bold w-24">客戶名稱：</div>
-                <div>444 飛弘</div>
+                <div>282 協航</div>
             </div>
             <div class="flex">
                 <div class="font-bold w-24">製表日期：</div>
@@ -208,7 +208,7 @@
                 <tr class="bg-gray-100 border-b-2 border-black">
                     <th @click="sortBy('date')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">日期</th>
                     <th @click="sortBy('client_name')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">客戶名稱</th>
-                    <th @click="sortBy('bill_no')" style="width: 150px;" class="cursor-pointer hover:bg-gray-200 select-none">提單號碼</th>
+                    <th style="width: 150px;">提單號碼</th>
                     <th @click="sortBy('pieces')" style="width: 60px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">件數</th>
                     <th @click="sortBy('weight')" style="width: 60px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">重量</th>
                     <th @click="sortBy('amount')" style="width: 100px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">運費</th>
@@ -227,10 +227,10 @@
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'client_name')}" :style="getCellStyle(row, 1)"><input list="client-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.client_name" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'client_name', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'bill_no')}" :style="getCellStyle(row, 2)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.bill_no" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'bill_no', $event)"></div></td>
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}" :style="getCellStyle(row, 3)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}" :style="getCellStyle(row, 4)"><input autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}" :style="getCellStyle(row, 4)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
                     <td class="p-0 text-right relative group" :class="{'fill-highlight': isFillHighlighted(index, 'amount')}" :style="getCellStyle(row, 5)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.amount" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'amount', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}" :style="getCellStyle(row, 6)"><input list="location-names" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}" :style="getCellStyle(row, 7)"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="handleRemarkChange(row, index)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}" :style="getCellStyle(row, 6)"><input list="location-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}" :style="getCellStyle(row, 7)"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
                     <td class="p-1 text-right text-blue-600 font-bold bg-gray-50 align-middle">@{{ getGroupTotalWeight(row) }}</td>
                     <td class="p-0 text-center align-middle relative group" :class="{'fill-highlight': isFillHighlighted(index, 'selected')}">
                         <input type="checkbox" v-model="selectedRows" :value="row.id" class="w-4 h-4 cursor-pointer align-middle opacity-50 group-hover:opacity-100 transition-opacity" :class="{'opacity-100': selectedRows.includes(row.id)}">
@@ -270,7 +270,7 @@
             <div class="flex gap-4 items-center">
                 <span class="text-gray-700 font-bold text-lg">快速排序：</span>
                 <button @click="sortBy('bill_no')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
-                    <span>依帳單編號排序</span>
+                    <span>依提單號碼排序</span>
                     <span v-if="sortState.column === 'bill_no'" class="text-xs bg-indigo-700 px-1 rounded">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
                 </button>
                 <button @click="resetView" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
@@ -497,7 +497,7 @@
                         location: row.location || '',
                         remark: row.remark || '',
                         is_client_data: row.is_client_data || false,
-                        client_code: '444'
+                        client_code: '282'
                     };
 
                     const response = await fetch(`/api/waybills/${row.id}`, {
@@ -585,7 +585,7 @@
                 const group = getGroupRows(row);
                 
                 if (group.length === 1) {
-                    const textToCheck = (row.location || '') + ' ' + (row.remark || '');
+                    const textToCheck = (row.client_name || '') + ' ' + (row.location || '') + ' ' + (row.remark || '');
                     const newAmount = calculateFreight(row.weight, textToCheck);
                     if (newAmount > 0) row.amount = newAmount;
                     await updateRow(row);
@@ -611,7 +611,7 @@
                     if (tongXiaPiIndex === -1 && r.remark && r.remark.includes('同下批')) {
                         tongXiaPiIndex = i;
                     }
-                    combinedText += (r.location || '') + ' ' + (r.remark || '') + ' ';
+                    combinedText += (r.client_name || '') + ' ' + (r.location || '') + ' ' + (r.remark || '') + ' ';
                 }
                 
                 const targetIndex = tongXiaPiIndex !== -1 ? tongXiaPiIndex : maxWeightIndex;
@@ -728,112 +728,177 @@
                 amount: null,
                 location: '',
                 remark: '',
-                client_code: '444'
+                client_code: '282'
             });
 
             const calculateFreight = (weight, remark) => {
                 const r = remark || '';
 
+                // Special fees check first
+                if (r.match(/棧板回收/)) return 800;
+                if (r.match(/搬運工資|搬運費/)) return 800;
+                if (r.match(/人力/)) return 1500;
+
+                // Vehicle check
                 let vehicle = null;
                 if (r.match(/3\.49噸/)) vehicle = '3.49';
                 else if (r.match(/6\.8噸/)) vehicle = '6.8';
                 else if (r.match(/8\.8噸/)) vehicle = '8.8';
+                else if (r.match(/10\.5噸/)) vehicle = '10.5';
                 else if (r.match(/15噸/)) vehicle = '15';
                 else if (r.match(/17噸/)) vehicle = '17';
 
-                let regionA = 1;
-                if (r.match(/三重|五股|泰山|新莊|蘆洲|板橋|樹林|中和|永和/)) { regionA = '2a'; }
-                else if (r.match(/南港|內湖|大直|天母|景美/)) { regionA = '2b'; }
-                else if (r.match(/新店|汐止|深坑|木柵|八里|土城|鶯歌|三峽|北投|社子/)) { regionA = '2c'; }
-                else if (r.match(/大溪|龍潭|新豐|湖口|七堵|瑞芳/)) { regionA = '2d'; }
-                else if (r.match(/新竹|基隆|淡水/)) { regionA = '2e'; }
-                else if (r.match(/蘆竹|大園/)) { regionA = 3; }
-                else if (r.match(/中壢|林口|龜山|桃園/)) { regionA = 4; }
-                else if (r.match(/新屋|八德|觀音|平鎮|楊梅/)) { regionA = 5; }
+                // Determine Region
+                // Region 1: Taipei city (Base)
+                // Region 2: Suburbs (Base + surcharge)
+                // Region 3: 中壢、內壢、桃園、大園、林口、龜山
+                // Region 4: 新屋、八德、三峽、鶯歌、觀音、平鎮、龍潭
+                // Region 5: 楊梅 (Taipei + 550) => maps to 2d basically
+                // Region 6: 新竹、湖口、基隆 (Only specific vehicles)
+                // Region 7: 冷泉港
+
+                let region = 1; 
+                let surcharge = 0;
+                let isColdSpring = false;
+
+                if (r.match(/冷泉港/)) {
+                    isColdSpring = true;
+                    region = 2; surcharge = 550; // Cold spring is treated as Xizhi for specific vehicles
+                } else if (r.match(/新竹|湖口|基隆/)) {
+                    region = 6;
+                } else if (r.match(/新屋|八德|三峽|鶯歌|觀音|平鎮|龍潭/)) {
+                    region = 4;
+                } else if (r.match(/中壢|內壢|桃園|大園|林口|龜山/)) {
+                    region = 3;
+                } else if (r.match(/淡水|八里/)) {
+                    region = 2; surcharge = 660;
+                } else if (r.match(/汐止|土城|楊梅/)) {
+                    region = 2; surcharge = 550;
+                } else if (r.match(/新莊|樹林|五股|泰山/)) {
+                    region = 2; surcharge = 440;
+                } else if (r.match(/中和|永和|三重|南港|板橋|石牌|北投|木柵|新店|蘆洲/)) {
+                    region = 2; surcharge = 330;
+                } else if (r.match(/景美|天母|士林|大直|內湖|松山|萬華|社子/)) {
+                    region = 2; surcharge = 220;
+                }
 
                 if (vehicle) {
-                    const matrixA_FTL = {
-                        1: { '3.49': 1680, '6.8': 2100, '8.8': 3150, '17': 4725 },
-                        '2a': { '3.49': 1785, '6.8': 2310, '8.8': 3150, '17': 4725 },
-                        '2b': { '3.49': 1785, '6.8': 2310, '8.8': 3150, '17': 5040 },
-                        '2c': { '3.49': 1890, '6.8': 2520, '8.8': 3675, '17': 5040 },
-                        '2d': { '3.49': 2100, '6.8': 2940, '8.8': 3780, '17': 5250 },
-                        '2e': { '3.49': 2520, '6.8': 3360, '8.8': 3990, '17': 5460 },
-                        3: { '3.49': 1575, '6.8': 2100, '8.8': 2625, '17': 4200 },
-                        4: { '3.49': 1680, '6.8': 2205, '8.8': 2940, '17': 4410 },
-                        5: { '3.49': 1785, '6.8': 2310, '8.8': 3150, '17': 4725 }
-                    };
-                    const finalPrice = matrixA_FTL[regionA]?.[vehicle];
-                    return finalPrice !== undefined ? finalPrice : -1;
+                    if (region === 1 || region === 3 || region === 4 || region === 2) {
+                        // Region 1,2,3,4 cars
+                        // We map them according to the rules. If not specific, we use Taipei standard
+                        if (region === 2 && surcharge === 660) {
+                            if (vehicle === '3.49') return 2310;
+                            if (vehicle === '6.8') return 2520;
+                        } else if (region === 2 && surcharge === 550) {
+                            if (vehicle === '3.49') return 2100;
+                            if (vehicle === '6.8') return 2520;
+                            if (vehicle === '8.8') return 3360;
+                            if (vehicle === '10.5') return 4200;
+                            if (vehicle === '15') return 4725;
+                            if (vehicle === '17') return 5250;
+                        } else if (region === 2 && surcharge === 440) {
+                            if (vehicle === '3.49') return 2100;
+                            if (vehicle === '6.8') return 2310;
+                            if (vehicle === '8.8') return 3150;
+                            if (vehicle === '15') return 4410;
+                            if (vehicle === '17') return 4725;
+                        } else if (region === 2 && surcharge === 330) {
+                            if (vehicle === '3.49') return 2100;
+                            if (vehicle === '6.8') return 2310;
+                            if (vehicle === '8.8') return 3150;
+                            if (vehicle === '10.5') return 4200;
+                            if (vehicle === '15') return 4725;
+                        } else if (region === 2 && surcharge === 220) {
+                            if (vehicle === '3.49') return 1995;
+                            if (vehicle === '6.8') return 2205;
+                        } else if (region === 3) {
+                            if (vehicle === '3.49') return 1890;
+                            if (vehicle === '6.8') return 2100;
+                            if (vehicle === '8.8') return 2940;
+                        } else if (region === 4) {
+                            if (vehicle === '3.49') return 2100;
+                            if (vehicle === '6.8') return 2310;
+                            if (vehicle === '15') return 4200;
+                        }
+                        
+                        // Default fallback to Region 1 (Taipei city)
+                        if (vehicle === '3.49') return 1890;
+                        if (vehicle === '6.8') return 2100;
+                        if (vehicle === '8.8') return 3675;
+                    } else if (region === 6) {
+                        if (vehicle === '3.49') return 2520;
+                        if (vehicle === '6.8') return 3255;
+                        if (vehicle === '8.8') return 3570;
+                    }
+                    
+                    return -1; // Specific vehicle not defined, leave empty
                 }
 
                 if (!weight) return 0;
                 const w = parseFloat(weight);
                 if (isNaN(w) || w <= 0) return 0;
 
-                let basePrice = 0;
-                if (w <= 20) basePrice = 330;
-                else if (w <= 50) basePrice = 440;
-                else if (w <= 100) basePrice = 660;
-                else if (w <= 200) basePrice = 770;
-                else if (w <= 300) basePrice = 880;
-                else if (w <= 400) basePrice = 990;
-                else if (w <= 500) basePrice = 1100;
-                else if (w <= 600) basePrice = 1210;
-                else if (w <= 700) basePrice = 1320;
-                else {
-                    const extraHundreds = Math.ceil((w - 700) / 100);
-                    basePrice = 1320 + extraHundreds * 110;
+                // Scattered goods
+                let amount = 0;
+                let addInsurance = true;
+
+                if (isColdSpring) {
+                    addInsurance = false;
+                    if (w <= 20) amount = 605;
+                    else if (w <= 50) amount = 754;
+                    else if (w <= 100) amount = 853;
+                    else if (w <= 200) amount = 963;
+                    else if (w <= 300) amount = 1073;
+                    else amount = Math.round(1073 + (w - 300) * 0.88);
+                } else if (region === 6) {
+                    return -1; // 另計
+                } else if (region === 3) {
+                    if (w <= 100) amount = 660;
+                    else if (w <= 300) amount = 990;
+                    else if (w <= 500) amount = 1100;
+                    else if (w <= 800) amount = 1320;
+                    else return -1;
+                } else if (region === 4) {
+                    if (w <= 100) amount = 770;
+                    else if (w <= 300) amount = 1100;
+                    else if (w <= 500) amount = 1320;
+                    else if (w <= 800) amount = 1540;
+                    else return -1;
+                } else {
+                    // Region 1 & 2
+                    if (w <= 50) amount = 253;
+                    else if (w <= 100) amount = 440;
+                    else if (w <= 200) amount = 550;
+                    else if (w <= 300) amount = 660;
+                    else if (w <= 400) amount = 880;
+                    else if (w <= 500) amount = 1100;
+                    else if (w <= 700) amount = 1320;
+                    else if (w <= 800) amount = 1430;
+                    else return -1;
+
+                    if (region === 2) {
+                        amount += surcharge;
+                    }
                 }
 
-                if (typeof regionA === 'string' && regionA.startsWith('2')) {
-                    if (regionA === '2a') basePrice += 220;
-                    if (regionA === '2b') basePrice += 330;
-                    if (regionA === '2c') basePrice += 440;
-                    if (regionA === '2d') basePrice += 550;
-                    if (regionA === '2e') basePrice += 660;
-                    return basePrice;
-                } else if (regionA === 3) {
-                    if (w <= 100) return 440;
-                    if (w <= 300) return 770;
-                    if (w <= 500) return 990;
-                    return 1320; 
-                } else if (regionA === 4) {
-                    if (w <= 100) return 550;
-                    if (w <= 300) return 880;
-                    if (w <= 400) return 1100;
-                    if (w <= 500) return 1210;
-                    return 1430;
-                } else if (regionA === 5) {
-                    if (w <= 100) return 660;
-                    if (w <= 300) return 880;
-                    if (w <= 400) return 1100;
-                    if (w <= 500) return 1320;
-                    return 1540;
+                if (addInsurance && amount > 0) {
+                    amount += 20; // 基本備註：每筆散貨貨物另加 $20 保險費
                 }
 
-                return basePrice;
+                return amount;
             };
 
-            watch([() => newRow.value.weight, () => newRow.value.location, () => newRow.value.remark], ([newWeight, newLoc, newRemark]) => {
+            // 282: 無自動報價，使用者手動輸入金額
+            watch([() => newRow.value.weight], ([newWeight]) => {
                 if (newRow.value.weight) {
                     newRow.value.weight = Math.round(newRow.value.weight);
-                    newWeight = newRow.value.weight;
-                }
-                if (isAmountManual.value) return;
-                const textToCheck = (newLoc || '') + ' ' + (newRemark || '');
-                const newAmount = calculateFreight(newWeight, textToCheck);
-                if (newAmount > 0) {
-                    newRow.value.amount = newAmount;
-                } else if (newAmount === -1) {
-                    newRow.value.amount = 0;
                 }
             });
 
             const previewFreight = (row) => {
                 const group = getGroupRows(row);
                 if (group.length === 1) {
-                    const textToCheck = (row.location || '') + ' ' + (row.remark || '');
+                    const textToCheck = (row.client_name || '') + ' ' + (row.location || '') + ' ' + (row.remark || '');
                     const newAmount = calculateFreight(row.weight, textToCheck);
                     if (newAmount > 0) {
                         row.amount = newAmount;
@@ -860,7 +925,7 @@
                     if (tongXiaPiIndex === -1 && r.remark && r.remark.includes('同下批')) {
                         tongXiaPiIndex = i;
                     }
-                    combinedText += (r.location || '') + ' ' + (r.remark || '') + ' ';
+                    combinedText += (r.client_name || '') + ' ' + (r.location || '') + ' ' + (r.remark || '') + ' ';
                 }
                 
                 const targetIndex = tongXiaPiIndex !== -1 ? tongXiaPiIndex : maxWeightIndex;
@@ -875,7 +940,7 @@
 
             const fetchData = async () => {
                 try {
-                    const response = await fetch('/api/waybills?client_code=444');
+                    const response = await fetch('/api/waybills?client_code=282');
                     const data = await response.json();
                     tableData.value = data;
                 } catch (error) {
@@ -919,7 +984,7 @@
                         location: newRow.value.location || '',
                         remark: newRow.value.remark || '',
                         is_client_data: false,
-                        client_code: '444'
+                        client_code: '282'
                     };
 
                     const response = await fetch('/api/waybills', {
@@ -1133,7 +1198,7 @@
 
                         const pastedFields = rowVals.map((_, c) => fields[startColIndex + c]);
                         if (!pastedFields.includes('amount')) {
-                            const textToCheck = (targetRow.location || '') + ' ' + (targetRow.remark || '');
+                            const textToCheck = (targetRow.client_name || '') + ' ' + (targetRow.location || '') + ' ' + (targetRow.remark || '');
                             const amt = calculateFreight(targetRow.weight, textToCheck);
                             if (amt > 0) {
                                 targetRow.amount = amt;
@@ -1290,7 +1355,7 @@
             const clearAllData = async () => {
                 if (!confirm('您確定要清空畫面上「所有」的資料嗎？這個動作無法復原！')) return;
                 try {
-                    const response = await fetch('/api/waybills/truncate?client_code=444', {
+                    const response = await fetch('/api/waybills/truncate?client_code=282', {
                         method: 'DELETE'
                     });
                     if (response.ok) {
@@ -1411,8 +1476,9 @@
                 }
                 
                 const aoa = [
-                    ["", "", "115 年 5 月  請求明細表"],
-                    ["444飛弘"],
+                    ["", "", "欣 華 運 通 有 限 公 司"],
+                    ["", "", "115 年 5 月  請款明細表"],
+                    ["282協航"],
                     ["日期", "客戶名稱", "提單號碼", "件數", "重量", "運費", "地點", "備註"]
                 ];
                 
@@ -1445,7 +1511,8 @@
                 
                 if(!ws['!merges']) ws['!merges'] = [];
                 ws['!merges'].push({ s: {r:0, c:2}, e: {r:0, c:4} });
-                ws['!merges'].push({ s: {r:1, c:0}, e: {r:1, c:2} });
+                ws['!merges'].push({ s: {r:1, c:2}, e: {r:1, c:4} });
+                ws['!merges'].push({ s: {r:2, c:0}, e: {r:2, c:2} });
 
                 
                 // Add styles
@@ -1545,8 +1612,8 @@
                 }
                 
                 const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "請求明細");
-                XLSX.writeFile(wb, "444飛弘請求明細.xlsx");
+                XLSX.utils.book_append_sheet(wb, ws, "運費明細");
+                XLSX.writeFile(wb, "282協航運費明細.xlsx");
             };
 
             return {

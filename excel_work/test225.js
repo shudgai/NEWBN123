@@ -1,311 +1,3 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>444 飛弘客戶資料</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Vue 3 -->
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <style>
-        [v-cloak] { display: none; }
-        /* Custom Excel-like styling */
-        .excel-table {
-            width: 100%;
-        }
-        .excel-table th, .excel-table td {
-            border: 1px solid #000;
-            padding: 4px 8px;
-            white-space: nowrap;
-        }
-        .excel-table th {
-            font-weight: bold;
-            background-color: #fff;
-            position: relative;
-            user-select: none;
-        }
-        .resizer {
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 8px;
-            height: 100%;
-            cursor: col-resize;
-            z-index: 10;
-            background-color: transparent;
-            transition: background-color 0.2s;
-        }
-        .resizer:hover, .resizer.resizing {
-            background-color: rgba(59, 130, 246, 0.5); /* blue-500 with opacity */
-        }
-        .nav-input {
-            font-family: inherit;
-            font-size: inherit;
-            min-width: 0;
-        }
-        .fill-handle {
-            position: absolute;
-            bottom: -2px;
-            right: -2px;
-            width: 8px;
-            height: 8px;
-            background-color: #3b82f6; /* blue-500 */
-            border: 1px solid white;
-            cursor: crosshair;
-            display: none;
-            z-index: 10;
-        }
-        .group:focus-within .fill-handle {
-            display: block;
-        }
-        .fill-highlight {
-            outline: 2px dashed #3b82f6;
-            outline-offset: -2px;
-            background-color: rgba(59, 130, 246, 0.1) !important;
-        }
-        .highlight-yellow {
-            background-color: #FFFF00 !important;
-        }
-        .text-right { text-align: right; }
-        .text-center { text-align: center; }
-    </style>
-</head>
-<body class="bg-gray-100 p-8 font-sans antialiased text-black">
-
-<div id="app" v-cloak class="max-w-7xl mx-auto bg-white p-8 shadow-sm">
-    
-    <!-- Controls Section -->
-    <div class="mb-4 flex justify-between items-center bg-gray-50 p-3 rounded border w-full">
-        <div class="flex gap-2">
-            <a href="/" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0 flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                </svg>
-                回首頁
-            </a>
-            <button @click="clearAllData" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0">
-                清空全部資料
-            </button>
-        </div>
-        <div class="flex items-center justify-center gap-4">
-            <label for="fontSizeSlider" class="font-bold text-sm text-gray-700 whitespace-nowrap">字體大小調整 (目前: @{{ fontSize }}px)</label>
-            <input type="range" id="fontSizeSlider" v-model="fontSize" min="10" max="24" step="1" class="w-32 md:w-48 cursor-pointer focus:outline-none focus:ring-0">
-        </div>
-        <div>
-            <button @click="scrollToBottom" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2 focus:outline-none focus:ring-0">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
-                移至最底
-            </button>
-        </div>
-    </div>
-
-    <!-- Excel Header Section -->
-    <div class="mb-6 grid grid-cols-2 gap-4 text-sm" :style="{ fontSize: fontSize + 'px' }">
-        <div>
-            <div class="flex mb-1">
-                <div class="font-bold w-24">運送公司：</div>
-                <div>欣華運通有限公司</div>
-            </div>
-            <div class="flex">
-                <div class="font-bold w-24">運送日期：</div>
-                <div>115/05/01-115/05/31</div>
-            </div>
-        </div>
-        <div>
-            <div class="flex mb-1">
-                <div class="font-bold w-24">客戶名稱：</div>
-                <div>444 飛弘</div>
-            </div>
-            <div class="flex">
-                <div class="font-bold w-24">製表日期：</div>
-                <div></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Data Table -->
-    <datalist id="client-names">
-        <option v-for="name in uniqueClientNames" :key="name" :value="name"></option>
-    </datalist>
-    <datalist id="location-names">
-        <option v-for="loc in uniqueLocations" :key="loc" :value="loc"></option>
-        <!-- 台北市區 -->
-        <option value="台北"></option>
-        <!-- 近郊 (+220) -->
-        <option value="景美"></option>
-        <option value="天母"></option>
-        <option value="士林"></option>
-        <option value="大直"></option>
-        <option value="內湖"></option>
-        <option value="松山"></option>
-        <option value="萬華"></option>
-        <option value="社子"></option>
-        <!-- 近郊 (+330) -->
-        <option value="三重"></option>
-        <option value="中和"></option>
-        <option value="永和"></option>
-        <option value="南港"></option>
-        <option value="板橋"></option>
-        <option value="石牌"></option>
-        <option value="北投"></option>
-        <option value="木柵"></option>
-        <option value="新店"></option>
-        <option value="蘆洲"></option>
-        <!-- 近郊 (+440) -->
-        <option value="五股"></option>
-        <option value="泰山"></option>
-        <option value="新莊"></option>
-        <option value="樹林"></option>
-        <!-- 近郊 (+550) -->
-        <option value="汐止"></option>
-        <option value="土城"></option>
-        <option value="楊梅"></option>
-        <option value="深坑"></option>
-        <!-- 近郊 (+660) -->
-        <option value="淡水"></option>
-        <option value="八里"></option>
-        <!-- 桃園區 -->
-        <option value="蘆竹"></option>
-        <option value="大園"></option>
-        <option value="中壢"></option>
-        <option value="內壢"></option>
-        <option value="林口"></option>
-        <option value="龜山"></option>
-        <option value="桃園"></option>
-        <!-- 桃園遠區 -->
-        <option value="新屋"></option>
-        <option value="八德"></option>
-        <option value="觀音"></option>
-        <option value="平鎮"></option>
-        <option value="龍潭"></option>
-        <option value="三峽"></option>
-        <option value="鶯歌"></option>
-        <!-- 遠區 -->
-        <option value="新竹"></option>
-        <option value="湖口"></option>
-        <option value="基隆"></option>
-        <option value="大溪"></option>
-        <option value="新豐"></option>
-        <option value="七堵"></option>
-        <option value="瑞芳"></option>
-        <!-- 特殊 -->
-        <option value="冷泉港"></option>
-        <option value="台中"></option>
-    </datalist>
-    <datalist id="remark-options">
-        <option value="同下批"></option>
-        <option value="及下批"></option>
-        <option value="共"></option>
-        <option value="3.49噸車"></option>
-        <option value="6.8噸車"></option>
-        <option value="15噸車"></option>
-        <option value="17噸車"></option>
-    </datalist>
-    <div class="overflow-x-auto border-t-2 border-b-2 border-black py-1">
-        <table class="text-left border-collapse excel-table" :style="{ fontSize: fontSize + 'px' }" ref="excelTable">
-            <thead>
-                <tr class="bg-gray-100 border-b-2 border-black">
-                    <th @click="sortBy('date')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">日期</th>
-                    <th @click="sortBy('client_name')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">客戶名稱</th>
-                    <th @click="sortBy('bill_no')" style="width: 150px;" class="cursor-pointer hover:bg-gray-200 select-none">提單號碼</th>
-                    <th @click="sortBy('pieces')" style="width: 60px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">件數</th>
-                    <th @click="sortBy('weight')" style="width: 60px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">重量</th>
-                    <th @click="sortBy('amount')" style="width: 100px;" class="text-right cursor-pointer hover:bg-gray-200 select-none">運費</th>
-                    <th @click="sortBy('location')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">地點</th>
-                    <th @click="sortBy('remark')" style="width: 150px;" class="cursor-pointer hover:bg-gray-200 select-none">備註</th>
-                    <th style="width: 60px;" class="text-right">總重</th>
-                    <th style="width: 40px;" class="text-center">
-                        <input type="checkbox" @change="toggleAllSelection" :checked="isAllSelected" class="w-4 h-4 cursor-pointer align-middle" title="全選/取消全選">
-                    </th>
-                </tr>
-            </thead>
-            <tbody @paste="handlePaste">
-                <!-- Data Rows -->
-                <tr v-for="(row, index) in tableData" :key="row.id || index" :data-id="row.id" class="border-b border-gray-300 hover:bg-gray-50">
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'date')}" :style="getCellStyle(row, 0)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.date" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'date', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'client_name')}" :style="getCellStyle(row, 1)"><input list="client-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.client_name" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'client_name', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'bill_no')}" :style="getCellStyle(row, 2)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.bill_no" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'bill_no', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}" :style="getCellStyle(row, 3)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}" :style="getCellStyle(row, 4)"><input autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
-                    <td class="p-0 text-right relative group" :class="{'fill-highlight': isFillHighlighted(index, 'amount')}" :style="getCellStyle(row, 5)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.amount" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'amount', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}" :style="getCellStyle(row, 6)"><input list="location-names" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="recalculateAndSave(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}" :style="getCellStyle(row, 7)"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="handleRemarkChange(row, index)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
-                    <td class="p-1 text-right text-blue-600 font-bold bg-gray-50 align-middle">@{{ getGroupTotalWeight(row) }}</td>
-                    <td class="p-0 text-center align-middle relative group" :class="{'fill-highlight': isFillHighlighted(index, 'selected')}">
-                        <input type="checkbox" v-model="selectedRows" :value="row.id" class="w-4 h-4 cursor-pointer align-middle opacity-50 group-hover:opacity-100 transition-opacity" :class="{'opacity-100': selectedRows.includes(row.id)}">
-                        <div class="fill-handle" @mousedown="startFill(index, 'selected', $event)"></div>
-                    </td>
-                </tr>
-
-                <!-- Input Row (Moved to bottom) -->
-                <tr class="bg-blue-50 border-t-2 border-blue-200">
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.date" class="nav-input w-full border p-1" placeholder="日期"></td>
-                    <td><input list="client-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.client_name" class="nav-input w-full border p-1" placeholder="客戶名稱"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.bill_no" class="nav-input w-full border p-1" placeholder="提單號碼"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.pieces" class="nav-input w-full border p-1 text-right" placeholder="件數"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.weight" class="nav-input w-full border p-1 text-right" placeholder="重量"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" @input="isAmountManual = true" type="text" v-model.number="newRow.amount" class="nav-input w-full border p-1 text-right" placeholder="運費"></td>
-                    <td><input list="location-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.location" class="nav-input w-full border p-1" placeholder="地點"></td>
-                    <td><input list="remark-options" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.remark" class="nav-input w-full border p-1" placeholder="備註"></td>
-                    <td></td>
-                    <td class="text-center">
-                        <button @click="addRow" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm shadow">新增</button>
-                    </td>
-                </tr>
-
-                <!-- Total Row -->
-                <tr class="font-bold bg-gray-100 border-t-2 border-black">
-                    <td colspan="5" class="text-center">總計</td>
-                    <td class="text-right">@{{ totalAmount }}</td>
-                    <td colspan="4"></td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Bottom Controls -->
-    <div class="mt-4 p-4 bg-gray-50 border border-gray-300 rounded-lg shadow-sm">
-        <div class="flex flex-wrap gap-4 items-center justify-between">
-            <div class="flex gap-4 items-center">
-                <span class="text-gray-700 font-bold text-lg">快速排序：</span>
-                <button @click="sortBy('bill_no')" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
-                    <span>依帳單編號排序</span>
-                    <span v-if="sortState.column === 'bill_no'" class="text-xs bg-indigo-700 px-1 rounded">@{{ sortState.order === 'asc' ? '▲' : '▼' }}</span>
-                </button>
-                <button @click="resetView" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
-                    <span>恢復介面</span>
-                </button>
-            
-                
-            
-            <button @click="scrollToTop" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
-                移至最上方
-            </button>
-            <a href="/" class="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded shadow transition-colors">
-                回首頁
-            </a>
-            <button @click="exportExcel" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
-                匯出 Excel
-            </button>
-            <button v-if="selectedRows.length > 0" @click="deleteSelected" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
-                刪除選取項目 (@{{ selectedRows.length }})
-            </button>
-
-            </div>
-        </div>
-    </div>
-
-    <div v-if="showToast" class="fixed bottom-4 right-4 bg-gray-800 text-white px-6 py-3 rounded shadow-lg flex items-center gap-4 z-50 transition-opacity duration-300">
-        <span>@{{ toastMessage }}</span>
-        <button @click="undoAction" class="text-yellow-400 font-bold hover:text-yellow-300 underline">復原 (Undo)</button>
-        <button @click="showToast = false" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
-    </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script>
     const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
 
     createApp({
@@ -315,7 +7,8 @@
             
             const getCellStyle = (row, colIndex) => {
                 if (!row || !row.styles || !row.styles[colIndex]) return {};
-                return row.styles[colIndex];
+                const s = { ...row.styles[colIndex] };
+                return s;
             };
             
             const isAmountManual = ref(false);
@@ -497,7 +190,7 @@
                         location: row.location || '',
                         remark: row.remark || '',
                         is_client_data: row.is_client_data || false,
-                        client_code: '444'
+                        client_code: '225'
                     };
 
                     const response = await fetch(`/api/waybills/${row.id}`, {
@@ -728,7 +421,7 @@
                 amount: null,
                 location: '',
                 remark: '',
-                client_code: '444'
+                client_code: '225'
             });
 
             const calculateFreight = (weight, remark) => {
@@ -875,7 +568,7 @@
 
             const fetchData = async () => {
                 try {
-                    const response = await fetch('/api/waybills?client_code=444');
+                    const response = await fetch('/api/waybills?client_code=225');
                     const data = await response.json();
                     tableData.value = data;
                 } catch (error) {
@@ -919,7 +612,7 @@
                         location: newRow.value.location || '',
                         remark: newRow.value.remark || '',
                         is_client_data: false,
-                        client_code: '444'
+                        client_code: '225'
                     };
 
                     const response = await fetch('/api/waybills', {
@@ -1109,10 +802,32 @@
                             // Ensure the array has enough elements
                             while(targetRow.styles.length < fields.length) targetRow.styles.push({});
                             
-                            // Align pasted styles with the columns
-                            for (let i = 0; i < rowStyles.length; i++) {
-                                if (startColIndex + i < fields.length) {
-                                    targetRow.styles[startColIndex + i] = rowStyles[i];
+                            if (rowVals.length >= 9 && startColIndex === 0) {
+                                if (rowStyles.length >= 9) {
+                                    targetRow.styles[0] = rowStyles[0] || {};
+                                    targetRow.styles[1] = rowStyles[2] || {}; // Client
+                                    targetRow.styles[2] = rowStyles[1] || {}; // Bill
+                                    targetRow.styles[3] = rowStyles[6] || {}; // Pieces
+                                    targetRow.styles[4] = rowStyles[7] || {}; // Weight
+                                    targetRow.styles[5] = rowStyles[4] || {}; // Amount
+                                    targetRow.styles[6] = rowStyles[8] || {}; // Location
+                                    targetRow.styles[7] = rowStyles[8] || {}; // Remark
+                                } else {
+                                    targetRow.styles[0] = rowStyles[0] || {}; // Date
+                                    targetRow.styles[1] = rowStyles[2] || {}; // Client
+                                    targetRow.styles[2] = rowStyles[1] || {}; // Bill
+                                    targetRow.styles[3] = rowStyles[4] || {}; // Pieces
+                                    targetRow.styles[4] = rowStyles[5] || {}; // Weight
+                                    targetRow.styles[5] = rowStyles[3] || {}; // Amount
+                                    targetRow.styles[6] = rowStyles[6] || {}; // Location
+                                    targetRow.styles[7] = rowStyles[6] || {}; // Remark
+                                }
+                            } else {
+                                // Align pasted styles with the columns
+                                for (let i = 0; i < rowStyles.length; i++) {
+                                    if (startColIndex + i < fields.length) {
+                                        targetRow.styles[startColIndex + i] = rowStyles[i];
+                                    }
                                 }
                             }
                             
@@ -1120,16 +835,40 @@
                             targetRow.styles = [...targetRow.styles];
                         }
 
-                        for (let c = 0; c < rowVals.length; c++) {
-                            const colField = fields[startColIndex + c];
-                            if (colField) {
-                                let val = rowVals[c].trim();
-                                if (['amount', 'pieces', 'weight'].includes(colField)) {
-                                    val = val === '' ? null : (parseFloat(val) || 0);
+                        if (rowVals.length >= 9 && startColIndex === 0) {
+                            targetRow.date = rowVals[0].trim();
+                            targetRow.bill_no = rowVals[1].trim();
+                            targetRow.client_name = rowVals[2].trim();
+                            targetRow.amount = rowVals[4].trim() === '' ? null : (parseFloat(rowVals[4]) || 0);
+                            targetRow.pieces = rowVals[6].trim() === '' ? null : (parseFloat(rowVals[6]) || 0);
+                            targetRow.weight = rowVals[7].trim() === '' ? null : (parseFloat(rowVals[7]) || 0);
+                            targetRow.location = '';
+                            targetRow.remark = rowVals[8].trim();
+                        } else {
+                            for (let c = 0; c < rowVals.length; c++) {
+                                const colField = fields[startColIndex + c];
+                                if (colField) {
+                                    let val = rowVals[c].trim();
+                                    if (['amount', 'pieces', 'weight'].includes(colField)) {
+                                        val = val === '' ? null : (parseFloat(val) || 0);
+                                    }
+                                    targetRow[colField] = val;
                                 }
-                                targetRow[colField] = val;
                             }
                         }
+
+                        let rawText = ((targetRow.location || '') + ' ' + (targetRow.remark || '')).trim();
+                        let foundLoc = '';
+                        const knownLocations = ['台北市', '新北市', '三重', '五股', '泰山', '新莊', '蘆洲', '板橋', '樹林', '中和', '永和', '南港', '內湖', '大直', '天母', '景美', '新店', '汐止', '深坑', '木柵', '八里', '土城', '鶯歌', '三峽', '北投', '社子', '大溪', '龍潭', '新豐', '湖口', '七堵', '瑞芳', '新竹', '基隆', '淡水', '蘆竹', '大園', '中壢', '林口', '龜山', '桃園', '新屋', '八德', '觀音', '平鎮', '楊梅', '台中', '北市', '台北'];
+                        for (const loc of knownLocations) {
+                            if (rawText.includes(loc)) {
+                                foundLoc = loc;
+                                rawText = rawText.replace(loc, '').trim();
+                                break;
+                            }
+                        }
+                        targetRow.location = foundLoc;
+                        targetRow.remark = rawText;
 
                         const pastedFields = rowVals.map((_, c) => fields[startColIndex + c]);
                         if (!pastedFields.includes('amount')) {
@@ -1290,7 +1029,7 @@
             const clearAllData = async () => {
                 if (!confirm('您確定要清空畫面上「所有」的資料嗎？這個動作無法復原！')) return;
                 try {
-                    const response = await fetch('/api/waybills/truncate?client_code=444', {
+                    const response = await fetch('/api/waybills/truncate?client_code=225', {
                         method: 'DELETE'
                     });
                     if (response.ok) {
@@ -1409,28 +1148,47 @@
                     alert('Excel 匯出模組尚未載入完成，請稍後再試。');
                     return;
                 }
+                const wsData = tableData.value.map(row => ({
+                    '日期': row.date,
+                    '客戶名稱': row.client_name,
+                    '提單號碼': row.bill_no,
+                    '件數': row.pieces,
+                    '重量': row.weight,
+                    '運費': row.amount,
+                    '地點': row.location,
+                    '備註': row.remark
+                }));
+                                let minDate = '';
+                let maxDate = '';
+                let clientName = '';
+                if (tableData.value.length > 0) {
+                    const dates = tableData.value.map(r => r.date).filter(d => !!d).sort();
+                    if (dates.length > 0) {
+                        minDate = dates[0];
+                        maxDate = dates[dates.length - 1];
+                    }
+                    clientName = tableData.value[0].client_name || '';
+                }
+                const dateRange = (minDate && maxDate) ? `${minDate}-${maxDate}` : '';
+                const today = new Date();
+                const formattedToday = `${today.getFullYear() - 1911}/${String(today.getMonth()+1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}`;
                 
+                const colHeaders = wsData.length > 0 ? Object.keys(wsData[0]) : [];
                 const aoa = [
-                    ["", "", "115 年 5 月  請求明細表"],
-                    ["444飛弘"],
-                    ["日期", "客戶名稱", "提單號碼", "件數", "重量", "運費", "地點", "備註"]
+                    ['', '', '', '', '', '', '', ''],
+                    ['運送公司:', '欣華運通有限公司', '叫車公司:', clientName, '', '', '', ''],
+                    ['運送日期:', dateRange, '製表日期 :', formattedToday, '', '', '', ''],
+                    ['', '', '', '', '', '', '', ''],
+                    colHeaders
                 ];
-                
-                tableData.value.forEach(row => {
-                    aoa.push([
-                        row.date || '',
-                        row.client_name || '',
-                        row.bill_no || '',
-                        row.pieces || '',
-                        row.weight || '',
-                        row.amount || '',
-                        row.location || '',
-                        row.remark || ''
-                    ]);
+                let totalPieces = 0, totalWeight = 0, totalAmount = 0;
+                wsData.forEach(row => {
+                    aoa.push(Object.values(row));
+                    totalPieces += (Number(row['件數']) || 0);
+                    totalWeight += (Number(row['重量']) || 0);
+                    totalAmount += (Number(row['運費']) || 0);
                 });
-                
-                aoa.push(["總計", "", "", "", "", totalAmount.value, "", ""]);
-                
+                aoa.push(['', '', '總計', totalPieces, totalWeight, totalAmount, '', '']);
                 const ws = XLSX.utils.aoa_to_sheet(aoa);
                 ws['!cols'] = [
                     { wch: 15 }, // Date
@@ -1443,110 +1201,107 @@
                     { wch: 30 }  // Remark
                 ];
                 
-                if(!ws['!merges']) ws['!merges'] = [];
-                ws['!merges'].push({ s: {r:0, c:2}, e: {r:0, c:4} });
-                ws['!merges'].push({ s: {r:1, c:0}, e: {r:1, c:2} });
-
-                
                 // Add styles
                 const range = XLSX.utils.decode_range(ws['!ref']);
                 for(let R = range.s.r; R <= range.e.r; ++R) {
                     for(let C = range.s.c; C <= range.e.c; ++C) {
                         const cell_address = {c:C, r:R};
                         const cell_ref = XLSX.utils.encode_cell(cell_address);
+                        
+                        // FIX: Ensure empty cells are created so they can get background color!
                         if(!ws[cell_ref]) ws[cell_ref] = {t:'s', v:''};
-                        
                         if (!ws[cell_ref].s) ws[cell_ref].s = {};
-                        
-                        
                         ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12 };
                         
-                        // Header styling
-                        if (R === 0) {
-                            ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "E5E7EB" } };
+                        // Right-align numeric columns (Pieces, Weight, Amount)
+                        if (C === 3 || C === 4 || C === 5) {
+                            ws[cell_ref].s.alignment = { horizontal: "right" };
+                        }
+                        
+                        // Header styling for Row 5 (index 4)
+                        if (R === 4) {
                             ws[cell_ref].s.border = {
-                                top: { style: 'thin', color: { auto: 1 } },
-                                bottom: { style: 'medium', color: { auto: 1 } },
-                                left: { style: 'thin', color: { auto: 1 } },
-                                right: { style: 'thin', color: { auto: 1 } }
+                                top: { style: 'medium', color: { auto: 1 } },
+                                bottom: { style: 'medium', color: { auto: 1 } }
                             };
                             ws[cell_ref].s.font.bold = true;
                         }
-                    }
-                }
-                
-                // Find data rows and apply custom styles
-                let dataStartRow = -1;
-                for(let R = range.s.r; R <= range.e.r; ++R) {
-                    let isHeader = false;
-                    for(let C = range.s.c; C <= range.e.c; ++C) {
-                        const cell = ws[XLSX.utils.encode_cell({c:C, r:R})];
-                        if (cell && (cell.v === '重量' || cell.v === '件數' || cell.v === '運費')) {
-                            isHeader = true;
+                        
+                        // Total row styling (last row)
+                        if (R === range.e.r && R > 4) {
+                            if (C === 2) ws[cell_ref].s.alignment = { horizontal: "right" };
+                            ws[cell_ref].s.font = { name: "微軟正黑體", sz: 12, bold: true };
+                            ws[cell_ref].s.border = {
+                                top: { style: 'thin', color: { auto: 1 } },
+                                bottom: { style: 'double', color: { auto: 1 } }
+                            };
                         }
                     }
-                    if (isHeader) {
-                        dataStartRow = R + 1;
-                        break;
-                    }
                 }
                 
-                if (dataStartRow !== -1) {
-                    for (let i = 0; i < tableData.value.length; i++) {
-                        const rowData = tableData.value[i];
-                        const R = dataStartRow + i;
-                        for(let C = range.s.c; C <= range.e.c; ++C) {
-                            const cell_ref = XLSX.utils.encode_cell({c:C, r:R});
-                            if (!ws[cell_ref]) continue;
-                            if (!ws[cell_ref].s) ws[cell_ref].s = {};
-                            
-                            const cellStyleIndex = C - range.s.c; // Assuming columns map directly
-                            const customStyle = rowData.styles ? rowData.styles[cellStyleIndex] : null;
-                            
-                            // Force yellow background if row is marked as client data
-                            if (rowData.is_client_data) {
-                                ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "FFFF00" } };
-                            }
-                            
-                            if (customStyle) {
-                                // Background
-                                if (customStyle.backgroundColor) {
-                                    // simple hex conversion if needed, but rgb is tricky. 
-                                    // if it's already hex, use it. if rgb, we could try to convert, but let's just use FFFF00 if it has any yellow.
-                                    // SheetJS expects FFFF00 format.
-                                    let bg = customStyle.backgroundColor;
-                                    if (bg.includes('255, 255, 0') || bg.toLowerCase().includes('ffff00') || bg.toLowerCase() === 'yellow' || bg.includes('rgb(255, 255,')) {
-                                        ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "FFFF00" } };
-                                    } else {
-                                        // Try to extract hex
-                                        const hexMatch = bg.match(/#([0-9a-fA-F]{6})/);
-                                        if (hexMatch) {
-                                            ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: hexMatch[1].toUpperCase() } };
-                                        }
+                // Data rows start at index 5
+                const dataStartRow = 5;
+                for (let i = 0; i < tableData.value.length; i++) {
+                    const rowData = tableData.value[i];
+                    const R = dataStartRow + i;
+                    for(let C = range.s.c; C <= range.e.c; ++C) {
+                        const cell_ref = XLSX.utils.encode_cell({c:C, r:R});
+                        
+                        // Ensure cell exists
+                        if (!ws[cell_ref]) ws[cell_ref] = {t:'s', v:''};
+                        if (!ws[cell_ref].s) ws[cell_ref].s = {};
+                        
+                        const cellStyleIndex = C - range.s.c;
+                        const customStyle = rowData.styles ? rowData.styles[cellStyleIndex] : null;
+                        
+
+                        
+                        if (customStyle) {
+                            // Background
+                            if (customStyle.backgroundColor) {
+                                let bg = customStyle.backgroundColor;
+                                if (bg.includes('255, 255, 0') || bg.toLowerCase().includes('ffff00') || bg.toLowerCase() === 'yellow' || bg.includes('rgb(255, 255,')) {
+                                    ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "FFFF00" } };
+                                } else {
+                                    const hexMatch = bg.match(/#([0-9a-fA-F]{6})/);
+                                    if (hexMatch) {
+                                        ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: hexMatch[1].toUpperCase() } };
                                     }
                                 }
-                                // Border
-                                if (!ws[cell_ref].s.border) ws[cell_ref].s.border = {};
-                                ['top', 'bottom', 'left', 'right'].forEach(dir => {
-                                    const jsProp = 'border' + dir.charAt(0).toUpperCase() + dir.slice(1);
-                                    if (customStyle[jsProp] || customStyle.border) {
-                                        const b = customStyle[jsProp] || customStyle.border;
-                                        // Export borders mapping
-                                        if (b.includes('thick') || b.includes('medium') || b.includes('2px') || b.includes('3px') || b.includes('1.5pt') || b.includes('2pt')) {
-                                            ws[cell_ref].s.border[dir] = { style: "medium", color: { rgb: "000000" } };
-                                        } else if (b.includes('thin') || b.includes('.5pt') || b.includes('1px') || b.includes('solid')) {
-                                            ws[cell_ref].s.border[dir] = { style: "thin", color: { rgb: "000000" } };
-                                        }
-                                    }
-                                });
+                            }
+                            // Border
+                            ws[cell_ref].s.border = {};
+                            
+                            const parseBorder = (bStr) => {
+                                if (!bStr || bStr === 'none') return null;
+                                let s = "thin";
+                                if (bStr.includes("double")) s = "double";
+                                else if (bStr.includes("dashed")) s = "dashed";
+                                else if (bStr.includes("dotted")) s = "dotted";
+                                else if (bStr.includes("medium") || bStr.includes("1.5pt") || bStr.includes("2px") || bStr.includes("2pt")) s = "medium";
+                                else if (bStr.includes("thick") || bStr.includes("2.25pt") || bStr.includes("3px") || bStr.includes("3pt")) s = "thick";
+                                return { style: s, color: { auto: 1 } };
+                            };
+                            
+                            if (customStyle.border) {
+                                const b = parseBorder(customStyle.border);
+                                if (b) ws[cell_ref].s.border = { top: b, bottom: b, left: b, right: b };
+                            }
+                            if (customStyle.borderTop) { const b = parseBorder(customStyle.borderTop); if (b) ws[cell_ref].s.border.top = b; }
+                            if (customStyle.borderBottom) { const b = parseBorder(customStyle.borderBottom); if (b) ws[cell_ref].s.border.bottom = b; }
+                            if (customStyle.borderLeft) { const b = parseBorder(customStyle.borderLeft); if (b) ws[cell_ref].s.border.left = b; }
+                            if (customStyle.borderRight) { const b = parseBorder(customStyle.borderRight); if (b) ws[cell_ref].s.border.right = b; }
+                            
+                            if (Object.keys(ws[cell_ref].s.border).length === 0) {
+                                delete ws[cell_ref].s.border;
                             }
                         }
                     }
                 }
                 
                 const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "請求明細");
-                XLSX.writeFile(wb, "444飛弘請求明細.xlsx");
+                XLSX.utils.book_append_sheet(wb, ws, "運費明細");
+                XLSX.writeFile(wb, "225鴻天運費明細.xlsx");
             };
 
             return {
@@ -1578,18 +1333,14 @@
                 isFillHighlighted,
                 showToast,
                 toastMessage,
+                isAmountManual,
+                recalculateAndSave,
                 undoAction,
                 handleRemarkChange,
                 previewFreight,
                 sortState,
                 resetView,
-                sortBy,
-                isAmountManual,
-                recalculateAndSave
+                sortBy
             };
         }
     }).mount('#app');
-</script>
-
-</body>
-</html>

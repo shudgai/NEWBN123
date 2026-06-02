@@ -29,20 +29,28 @@ class MergeExcelController extends Controller
         $files  = $request->file('files');
         $mode   = $request->input('mode', 'single');
         $skipHeader = $request->boolean('skip_header', true);
+        $action = $request->input('action', 'download'); // 'download' or 'save'
 
         $mergedSpreadsheet = new Spreadsheet();
 
         if ($mode === 'single') {
             // ── 模式一：所有資料合併到同一個 Sheet ──────────────────
-            $activeSheet = $mergedSpreadsheet->getActiveSheet();
-            $activeSheet->setTitle('合併資料');
-            $currentRow  = 1;
-            $isFirstFile = true;
-            
             $feeKeywords = ['金額', '報價', '運費', '卡車費', '堆高機', '拆板回收', '代墊款'];
-            $feeColumns = []; // Format: ['C' => ['index' => 3, 'total' => 0]]
+            $predefinedOrder = [
+                '日期'=>1, '客戶名稱'=>2, '主併提單號碼'=>3, '送貨地點'=>4, '件數'=>5, '重量(kg)'=>6, '噸位'=>7, 
+                '卡車費'=>8, '堆高機'=>9, '拆板回收'=>10, '代墊款'=>11, '報價'=>12, '運費'=>13, '金額'=>14, '備註'=>99
+            ];
+            
             $globalLastSeenDate = '';
             $allCollectedRows = [];
+            
+            $globalHeaders = []; 
+            $globalHeaderOriginal = []; 
+            
+            $firstFileHeaderBlock = [];
+            $firstFileForceDate = false;
+            
+            $isFirstFile = true;
 
             foreach ($files as $file) {
                 try {
@@ -59,7 +67,7 @@ class MergeExcelController extends Controller
                     
                     $highestColIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($highestColumn);
 
-                    // Find Header Row (the row with column titles like 日期, 金額, 備註)
+                    // Find Header Row
                     $headerRow = 1;
                     for ($r = 1; $r <= min(10, $highestRow); $r++) {
                         $rowStr = '';
@@ -91,7 +99,6 @@ class MergeExcelController extends Controller
                         }
                     }
 
-                    // Extract title date (e.g. "114年02月" or "115年4月1日")
                     $titleDate = '';
                     for ($r = 1; $r < $headerRow; $r++) {
                         for ($c = 1; $c <= $highestColIndex; $c++) {
@@ -106,68 +113,54 @@ class MergeExcelController extends Controller
                     
                     $forceDateColumn = ($dateColString === null);
 
-                    // If this is the first file, identify fee columns, copy headers, and set up sheet
                     if ($isFirstFile) {
-                        $activeSheet->setShowGridlines(false); // Hide default gridlines
-                        $globalForceDateColumn = $forceDateColumn;
+                        $firstFileForceDate = $forceDateColumn;
+                        if ($forceDateColumn) {
+                            $globalHeaders[] = '日期';
+                            $globalHeaderOriginal['日期'] = '日期';
+                        }
+                    }
 
-                        $validHeaderCols = [];
-                        for ($c = 1; $c <= $highestColIndex; $c++) {
-                            $colStr = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
-                            $headerVal = (string)$sheet->getCell($colStr . $headerRow)->getValue();
+                    $currentSheetHeaderMap = []; // srcCol => cleanHeaderVal
+                    $isFeeColCache = [];
+                    for ($c = 1; $c <= $highestColIndex; $c++) {
+                        $colStr = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+                        $headerVal = trim((string)$sheet->getCell($colStr . $headerRow)->getValue());
+                        if ($headerVal === '' && $colStr === $dateColString) {
+                            $headerVal = '日期';
+                        }
+                        
+                        if ($headerVal !== '') {
+                            $cleanHeaderVal = preg_replace('/[\p{Z}\s\r\n]+/u', '', $headerVal);
+                            $currentSheetHeaderMap[$colStr] = $cleanHeaderVal;
                             
-                            if (trim($headerVal) !== '') {
-                                $validHeaderCols[] = $colStr;
+                            if (!in_array($cleanHeaderVal, $globalHeaders)) {
+                                $globalHeaders[] = $cleanHeaderVal;
+                                $globalHeaderOriginal[$cleanHeaderVal] = $headerVal;
                             }
-
+                            
+                            $isFee = false;
                             foreach ($feeKeywords as $keyword) {
-                                if (str_contains($headerVal, $keyword)) {
-                                    $destColIndex = $c;
-                                    if ($globalForceDateColumn) $destColIndex++;
-                                    $destColStr = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($destColIndex);
-                                    
-                                    $feeColumns[$destColStr] = [
-                                        'index' => $destColIndex,
-                                        'total' => 0,
-                                        'srcCol' => $colStr
-                                    ];
+                                if (str_contains($cleanHeaderVal, $keyword)) {
+                                    $isFee = true;
                                     break;
                                 }
                             }
+                            $isFeeColCache[$colStr] = $isFee;
                         }
-
-                        // Copy from row 1 to headerRow, only for valid columns
+                    }
+                    
+                    if ($isFirstFile) {
                         for ($r = 1; $r <= $headerRow; $r++) {
-                            if ($r === $headerRow && $globalForceDateColumn) {
-                                $activeSheet->getCell('A' . $currentRow)->setValue('日期');
-                                $style = $activeSheet->getStyle('A' . $currentRow);
-                                $style->getFont()->setName('微軟正黑體')->setSize(12)->setBold(true);
+                            $rowCells = [];
+                            foreach ($currentSheetHeaderMap as $srcCol => $cleanVal) {
+                                $rowCells[$cleanVal] = $sheet->getCell($srcCol . $r)->getValue();
                             }
-
-                            foreach ($validHeaderCols as $colStr) {
-                                $cell = $sheet->getCell($colStr . $r);
-                                $destColStr = $colStr;
-                                if ($globalForceDateColumn) {
-                                    $destColIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($colStr) + 1;
-                                    $destColStr = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($destColIndex);
-                                }
-                                $activeSheet->getCell($destColStr . $currentRow)->setValue($cell->getValue());
-                                
-                                $style = $activeSheet->getStyle($destColStr . $currentRow);
-                                $style->getFont()->setName('微軟正黑體')->setSize(12);
-                                if ($r === $headerRow) {
-                                    $style->getFont()->setBold(true);
-                                }
-                            }
-                            $currentRow++;
+                            $firstFileHeaderBlock[] = $rowCells;
                         }
-                        
-                        $maxDataColIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString(end($validHeaderCols));
-                        if ($globalForceDateColumn) $maxDataColIndex++;
                         $isFirstFile = false;
                     }
 
-                    // Extract header row strings to detect repeated headers later
                     $headerRowStrings = [];
                     for ($r = 1; $r <= $headerRow; $r++) {
                         $str = '';
@@ -181,11 +174,9 @@ class MergeExcelController extends Controller
                         }
                     }
 
-                    // Data starts after header row
                     $startRow = $headerRow + 1;
 
                     for ($row = $startRow; $row <= $highestRow; $row++) {
-                        // 1. Extract Date first so we don't lose it if we skip the row
                         $rowDate = '';
                         if ($dateColString) {
                             $cell = $sheet->getCell($dateColString . $row);
@@ -199,7 +190,6 @@ class MergeExcelController extends Controller
                                 }
                             } else {
                                 $cellDateVal = trim((string)$cell->getFormattedValue());
-                                // Try to manually parse string dates if they are not Excel Date objects
                                 if (preg_match('/(\d+)\s*月\s*(\d+)\s*[日號]?/', $cellDateVal, $m) || preg_match('/(?:^|[^\d])(\d+)\/(\d+)(?:[^\d]|$)/', $cellDateVal, $m)) {
                                     $month = str_pad($m[1], 2, '0', STR_PAD_LEFT);
                                     $day = str_pad($m[2], 2, '0', STR_PAD_LEFT);
@@ -213,20 +203,21 @@ class MergeExcelController extends Controller
                         }
                         $rowDate = $globalLastSeenDate;
 
-                        // 2. Check if row has any actual data (excluding the date column) and isn't a total row
                         $hasData = false;
                         $isTotalRow = false;
                         $hasFeeData = false;
                         $hasNonZeroNonFeeData = false;
-                        $limitCol = isset($maxDataColIndex) ? $maxDataColIndex : $highestColIndex;
                         
-                        $rowStrClean = '';
-                        for ($c = 1; $c <= $limitCol; $c++) {
+                        $rowStrClean_for_metadata = '';
+                        for ($c = 1; $c <= $highestColIndex; $c++) {
                             $colStr = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
                             $cellVal = trim((string)$sheet->getCell($colStr . $row)->getFormattedValue());
-                            $rowStrClean .= $cellVal;
+                            $rowStrClean_for_metadata .= $cellVal;
                             
-                            // If it's not the date column and it's not empty, we have data
+                            if (!isset($currentSheetHeaderMap[$colStr])) {
+                                continue;
+                            }
+                            
                             if ($colStr !== $dateColString && $cellVal !== '') {
                                 $hasData = true;
                             }
@@ -235,20 +226,12 @@ class MergeExcelController extends Controller
                                 $isTotalRow = true;
                             }
                             
-                            // Calculate destination column string for fee lookup
-                            $destColStr = $colStr;
-                            if (isset($globalForceDateColumn) && $globalForceDateColumn) {
-                                $destColIndex = $c + 1;
-                                $destColStr = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($destColIndex);
-                            }
-                            
-                            if (isset($feeColumns[$destColStr]) && $cellVal !== '') {
+                            if ($isFeeColCache[$colStr] && $cellVal !== '') {
                                 $cleanVal = str_replace(',', '', $cellVal);
                                 if (is_numeric($cleanVal)) {
                                     $hasFeeData = true;
                                 }
                             } elseif ($cellVal !== '' && $cellVal !== '0' && $cellVal !== '0.0' && $cellVal !== '0.00' && $cellVal !== '0.000' && $cellVal !== '-') {
-                                // This is a non-fee column that has a meaningful (non-zero) value
                                 $hasNonZeroNonFeeData = true;
                             }
                         }
@@ -257,23 +240,22 @@ class MergeExcelController extends Controller
                             $isTotalRow = true;
                         }
                         
-                        $rowStrClean = str_replace(' ', '', $rowStrClean);
+                        $rowStrClean_for_metadata = str_replace(' ', '', $rowStrClean_for_metadata);
                         
-                        // Check if it's a structural metadata row (repeated headers within same sheet)
                         $isMetadataRow = false;
-                        if (!$hasFeeData && $rowStrClean !== '') {
+                        if (!$hasFeeData && $rowStrClean_for_metadata !== '') {
                             foreach ($headerRowStrings as $hs) {
-                                if ($hs === $rowStrClean) {
+                                if ($hs === $rowStrClean_for_metadata) {
                                     $isMetadataRow = true;
                                     break;
                                 }
                             }
                             if (!$isMetadataRow) {
                                 if (
-                                    str_contains($rowStrClean, '有限公司') || 
-                                    str_contains($rowStrClean, '明細表') || 
-                                    (str_contains($rowStrClean, '日期') && str_contains($rowStrClean, '客戶名稱')) ||
-                                    str_contains($rowStrClean, '請款明細')
+                                    str_contains($rowStrClean_for_metadata, '有限公司') || 
+                                    str_contains($rowStrClean_for_metadata, '明細表') || 
+                                    (str_contains($rowStrClean_for_metadata, '日期') && str_contains($rowStrClean_for_metadata, '客戶名稱')) ||
+                                    str_contains($rowStrClean_for_metadata, '請款明細')
                                 ) {
                                     $isMetadataRow = true;
                                 }
@@ -282,27 +264,23 @@ class MergeExcelController extends Controller
 
                         if ($isMetadataRow) {
                             $globalLastSeenDate = ''; // Reset date for the new section
-                            // Update title date if this metadata row has one
-                            if (preg_match('/(\d+\s*年\s*\d+\s*月(?:\s*\d+\s*[日號])?)/', $rowStrClean, $matches)) {
+                            if (preg_match('/(\d+\s*年\s*\d+\s*月(?:\s*\d+\s*[日號])?)/', $rowStrClean_for_metadata, $matches)) {
                                 $titleDate = str_replace(' ', '', $matches[1]);
                             }
                             continue;
                         }
 
-                        // Skip if it only contains a date (no other data) or if it's a total row
                         if (!$hasData || $isTotalRow) {
                             continue;
                         }
 
-                        // Figure out final date string
                         $finalDateStr = '';
-                        if (isset($globalForceDateColumn) && $globalForceDateColumn) {
+                        if ($dateColString === null) {
                             $finalDateStr = $titleDate;
                         } else {
                             $finalDateStr = $rowDate;
                         }
 
-                        // Format as mm/dd
                         if (preg_match('/(\d+)\s*月\s*(\d+)\s*[日號]?/', $finalDateStr, $m) || preg_match('/(?:^|[^\d])(\d+)\/(\d+)(?:[^\d]|$)/', $finalDateStr, $m)) {
                             $month = str_pad($m[1], 2, '0', STR_PAD_LEFT);
                             $day = str_pad($m[2], 2, '0', STR_PAD_LEFT);
@@ -312,49 +290,42 @@ class MergeExcelController extends Controller
                             $finalDateStr = "$month";
                         }
 
-                        // 3. Collect the row instead of outputting immediately
                         $rowDataForSorting = [
                             'sort_date' => $finalDateStr,
                             'original_index' => count($allCollectedRows),
                             'cells' => []
                         ];
 
-                        for ($c = 1; $c <= $limitCol; $c++) {
-                            $srcColStr = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
-                            $destColStr = $srcColStr;
-                            if (isset($globalForceDateColumn) && $globalForceDateColumn) {
-                                $destColIndex = $c + 1;
-                                $destColStr = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($destColIndex);
-                            }
+                        if ($dateColString === null) {
+                            $rowDataForSorting['cells']['日期'] = [
+                                'value' => $finalDateStr,
+                                'is_fee' => false
+                            ];
+                        }
 
+                        for ($c = 1; $c <= $highestColIndex; $c++) {
+                            $srcColStr = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c);
+                            if (!isset($currentSheetHeaderMap[$srcColStr])) {
+                                continue;
+                            }
+                            $cleanVal = $currentSheetHeaderMap[$srcColStr];
                             $cell = $sheet->getCell($srcColStr . $row);
                             
-                            if (isset($feeColumns[$destColStr])) {
+                            if ($isFeeColCache[$srcColStr]) {
                                 $cellValue = $cell->getValue();
-                                $rowDataForSorting['cells'][$destColStr] = [
+                                $rowDataForSorting['cells'][$cleanVal] = [
                                     'value' => $cellValue,
                                     'is_fee' => true
                                 ];
-                                if (is_numeric($cellValue)) {
-                                    $feeColumns[$destColStr]['total'] += floatval($cellValue);
-                                } else {
-                                    $val = floatval(str_replace(',', '', (string)$cellValue));
-                                    $feeColumns[$destColStr]['total'] += $val;
-                                }
                             } else {
                                 $formattedValue = (string)$cell->getFormattedValue();
-                                
-                                // Fill in the blank date column
                                 if ($srcColStr === $dateColString) {
                                     $formattedValue = $finalDateStr;
                                 }
-                                
-                                // Remove "P2" from remark
                                 if ($srcColStr === $currentFileRemarkColString) {
                                     $formattedValue = str_replace('P2', '', $formattedValue);
                                 }
-                                
-                                $rowDataForSorting['cells'][$destColStr] = [
+                                $rowDataForSorting['cells'][$cleanVal] = [
                                     'value' => $formattedValue,
                                     'is_fee' => false
                                 ];
@@ -364,8 +335,8 @@ class MergeExcelController extends Controller
                     }
                 }
             }
-            
-            // --- Sort and Output rows ---
+
+            // --- Sort rows ---
             usort($allCollectedRows, function($a, $b) {
                 $cmp = strcmp($a['sort_date'], $b['sort_date']);
                 if ($cmp === 0) {
@@ -374,16 +345,195 @@ class MergeExcelController extends Controller
                 return $cmp;
             });
 
-            foreach ($allCollectedRows as $rowData) {
-                if (isset($globalForceDateColumn) && $globalForceDateColumn) {
-                    $activeSheet->getCell('A' . $currentRow)->setValueExplicit($rowData['sort_date'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-                    $style = $activeSheet->getStyle('A' . $currentRow);
-                    $style->getFont()->setName('微軟正黑體')->setSize(12);
+            if ($action === 'save') {
+                $savedCount = 0;
+                $updatedCount = 0;
+                foreach ($allCollectedRows as $rowData) {
+                    $cells = $rowData['cells'];
+                    
+                    $date = $cells['日期']['value'] ?? null;
+                    $clientName = $cells['客戶名稱']['value'] ?? null;
+                    $billNo = $cells['主併提單號碼']['value'] ?? $cells['主倂提單號碼']['value'] ?? null;
+                    $location = $cells['送貨地點']['value'] ?? null;
+                    
+                    if (empty($date) && empty($clientName) && empty($billNo)) {
+                        continue;
+                    }
+                    
+                    $pieces = (int)str_replace(',', '', $cells['件數']['value'] ?? '0');
+                    $weight = (float)str_replace(',', '', $cells['重量(kg)']['value'] ?? '0');
+                    $tonnage = (float)str_replace(',', '', $cells['噸位']['value'] ?? '0');
+                    $truckFee = (int)str_replace(',', '', $cells['卡車費']['value'] ?? '0');
+                    $forkliftFee = (int)str_replace(',', '', $cells['堆高機']['value'] ?? '0');
+                    $palletRecoveryFee = (int)str_replace(',', '', $cells['拆板回收']['value'] ?? '0');
+                    $remark = $cells['備註']['value'] ?? null;
+                    
+                    $existing = \App\Models\Waybill::where('date', $date)->where('bill_no', $billNo)->first();
+                    if ($existing) {
+                        $existing->update([
+                            'client_name' => $clientName,
+                            'location' => $location,
+                            'pieces' => $pieces,
+                            'weight' => $weight,
+                            'tonnage' => $tonnage,
+                            'truck_fee' => $truckFee,
+                            'forklift_fee' => $forkliftFee,
+                            'pallet_recovery_fee' => $palletRecoveryFee,
+                            'remark' => $remark,
+                        ]);
+                        $updatedCount++;
+                    } else {
+                        \App\Models\Waybill::create([
+                            'date' => $date,
+                            'bill_no' => $billNo,
+                            'client_name' => $clientName,
+                            'location' => $location,
+                            'pieces' => $pieces,
+                            'weight' => $weight,
+                            'tonnage' => $tonnage,
+                            'truck_fee' => $truckFee,
+                            'forklift_fee' => $forkliftFee,
+                            'pallet_recovery_fee' => $palletRecoveryFee,
+                            'remark' => $remark,
+                        ]);
+                        $savedCount++;
+                    }
                 }
+                
+                return response()->json([
+                    'success' => true,
+                    'message' => "成功新增 {$savedCount} 筆，更新 {$updatedCount} 筆資料！"
+                ]);
+            }
 
-                foreach ($rowData['cells'] as $destColStr => $cellData) {
+            // --- Write Setup ---
+            $activeSheet = $mergedSpreadsheet->getActiveSheet();
+            $activeSheet->setTitle('合併資料');
+            $activeSheet->setShowGridlines(false);
+            $currentRow = 1;
+
+            $fixedColumns = [
+                '日期' => 'A',
+                '客戶名稱' => 'B',
+                '主併提單號碼' => 'C',
+                '主倂提單號碼' => 'C', // alias just in case
+                '送貨地點' => 'D',
+                '件數' => 'E',
+                '重量(kg)' => 'F',
+                '噸位' => 'G',
+                '卡車費' => 'H',
+                '堆高機' => 'I',
+                '拆板回收' => 'J',
+                '備註' => 'K'
+            ];
+            
+            $globalHeaderToDestCol = [];
+            foreach ($fixedColumns as $key => $col) {
+                $globalHeaderToDestCol[$key] = $col;
+            }
+            
+            $nextExtraColIndex = 12; // L
+            foreach ($globalHeaders as $cleanVal) {
+                if (!isset($globalHeaderToDestCol[$cleanVal])) {
+                    $destColStr = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($nextExtraColIndex);
+                    $globalHeaderToDestCol[$cleanVal] = $destColStr;
+                    $nextExtraColIndex++;
+                }
+            }
+
+            $feeColumns = []; 
+            foreach ($globalHeaderToDestCol as $cleanVal => $destColStr) {
+                foreach ($feeKeywords as $keyword) {
+                    if (str_contains($cleanVal, $keyword)) {
+                        $feeColumns[$destColStr] = [
+                            'index' => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($destColStr),
+                            'total' => 0
+                        ];
+                        break;
+                    }
+                }
+            }
+
+            // Write first file's header block
+            $headerRowCount = count($firstFileHeaderBlock);
+            if ($headerRowCount > 0) {
+                foreach ($firstFileHeaderBlock as $rIndex => $rowCells) {
+                    $isHeaderRow = ($rIndex + 1 === $headerRowCount);
+                    
+                    if ($isHeaderRow) {
+                        $defaultHeaders = [
+                            'A' => '日期', 'B' => '客戶名稱', 'C' => '主併提單號碼', 'D' => '送貨地點',
+                            'E' => '件數', 'F' => '重量(kg)', 'G' => '噸位', 'H' => '卡車費',
+                            'I' => '堆高機', 'J' => '拆板回收', 'K' => '備註'
+                        ];
+                        foreach ($defaultHeaders as $col => $name) {
+                            $activeSheet->getCell($col . $currentRow)->setValue($name);
+                            $style = $activeSheet->getStyle($col . $currentRow);
+                            $style->getFont()->setName('微軟正黑體')->setSize(12)->setBold(true);
+                        }
+                    }
+                    
+                    foreach ($rowCells as $cleanVal => $value) {
+                        if (!isset($globalHeaderToDestCol[$cleanVal])) continue;
+                        $destColStr = $globalHeaderToDestCol[$cleanVal];
+                        
+                        if ($isHeaderRow) {
+                            $colIdx = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($destColStr);
+                            if ($colIdx >= 12) {
+                                $activeSheet->getCell($destColStr . $currentRow)->setValue($globalHeaderOriginal[$cleanVal] ?? $cleanVal);
+                                $style = $activeSheet->getStyle($destColStr . $currentRow);
+                                $style->getFont()->setName('微軟正黑體')->setSize(12)->setBold(true);
+                            }
+                        } else {
+                            $activeSheet->getCell($destColStr . $currentRow)->setValue($value);
+                            $style = $activeSheet->getStyle($destColStr . $currentRow);
+                            $style->getFont()->setName('微軟正黑體')->setSize(12);
+                        }
+                    }
+                    $currentRow++;
+                }
+            } else {
+                $defaultHeaders = [
+                    'A' => '日期', 'B' => '客戶名稱', 'C' => '主併提單號碼', 'D' => '送貨地點',
+                    'E' => '件數', 'F' => '重量(kg)', 'G' => '噸位', 'H' => '卡車費',
+                    'I' => '堆高機', 'J' => '拆板回收', 'K' => '備註'
+                ];
+                foreach ($defaultHeaders as $col => $name) {
+                    $activeSheet->getCell($col . $currentRow)->setValue($name);
+                    $style = $activeSheet->getStyle($col . $currentRow);
+                    $style->getFont()->setName('微軟正黑體')->setSize(12)->setBold(true);
+                }
+                foreach ($globalHeaders as $cleanVal) {
+                    $destColStr = $globalHeaderToDestCol[$cleanVal];
+                    $colIdx = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($destColStr);
+                    if ($colIdx >= 12) {
+                        $activeSheet->getCell($destColStr . $currentRow)->setValue($globalHeaderOriginal[$cleanVal] ?? $cleanVal);
+                        $style = $activeSheet->getStyle($destColStr . $currentRow);
+                        $style->getFont()->setName('微軟正黑體')->setSize(12)->setBold(true);
+                    }
+                }
+                $currentRow++;
+            }
+
+            // --- Output rows ---
+
+            foreach ($allCollectedRows as $rowData) {
+                foreach ($rowData['cells'] as $cleanVal => $cellData) {
+                    if (!isset($globalHeaderToDestCol[$cleanVal])) continue;
+                    $destColStr = $globalHeaderToDestCol[$cleanVal];
+                    
                     if ($cellData['is_fee']) {
                         $activeSheet->getCell($destColStr . $currentRow)->setValue($cellData['value']);
+                        
+                        if (isset($feeColumns[$destColStr])) {
+                            $cellValue = $cellData['value'];
+                            if (is_numeric($cellValue)) {
+                                $feeColumns[$destColStr]['total'] += floatval($cellValue);
+                            } else {
+                                $val = floatval(str_replace(',', '', (string)$cellValue));
+                                $feeColumns[$destColStr]['total'] += $val;
+                            }
+                        }
                     } else {
                         $activeSheet->getCell($destColStr . $currentRow)->setValueExplicit($cellData['value'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
                     }

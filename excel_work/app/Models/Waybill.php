@@ -21,7 +21,10 @@ class Waybill extends Model
         'is_client_data',
         'client_code',
         'forklift_fee',
-        'styles'
+        'styles',
+        'tonnage',
+        'truck_fee',
+        'pallet_recovery_fee'
     ];
 
     protected $casts = [

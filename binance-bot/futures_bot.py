@@ -163,15 +163,18 @@ LEVERAGE = 5.0
 current_1h_deviation = 0.0
 
 async def update_dynamic_leverage():
-    global LEVERAGE, current_1h_deviation
+    global LEVERAGE, current_1h_deviation, macro_regime
     abs_dev = abs(current_1h_deviation)
     old = LEVERAGE
-    if abs_dev > 0.20:
-        LEVERAGE = 2
-    elif abs_dev > 0.10:
-        LEVERAGE = 5
-    else:
+    if "猴市" in macro_regime:
         LEVERAGE = 10
+    else:
+        if abs_dev > 0.20:
+            LEVERAGE = 2
+        elif abs_dev > 0.10:
+            LEVERAGE = 5
+        else:
+            LEVERAGE = 10
     if LEVERAGE != old:
         print(f"⚙️ [動態槓桿] 偏離度={current_1h_deviation*100:.1f}% → 調整為 {LEVERAGE}x")
         if not PAPER_TRADING:
@@ -678,70 +681,42 @@ async def watch_kline_and_strategy():
                     close_signal = True
                     close_reason = f"⛔ 硬止損：虧損超過 3% ({profit_pct*100:.1f}%)"
                     
-                # 【恢復：牛熊市專用移動停利 (Trailing Stop)】
+                # 【統一 0.5% 階梯追蹤停利 (跨環境通用)】
                 global trailing_highest, trailing_lowest
-                if "猴市" in macro_regime:
-                    # 猴市較短波段：1% 啟動，0.5% 階梯追蹤與保底
-                    if is_long:
-                        if close_price > trailing_highest:
-                            trailing_highest = close_price
-                        highest_profit_pct = (trailing_highest - current_pos_avg) / current_pos_avg
-                        if highest_profit_pct >= 0.01:
-                            stop_line = max(0.005, highest_profit_pct - 0.005)
-                            if profit_pct <= stop_line:
-                                close_signal = True
-                                close_reason = f"🛡️ 猴市階梯停利：最高 {highest_profit_pct*100:.2f}% 回落至 {stop_line*100:.2f}%"
-                                reset_trailing_stops()
-                    else:
-                        if close_price < trailing_lowest:
-                            trailing_lowest = close_price
-                        highest_profit_pct = (current_pos_avg - trailing_lowest) / current_pos_avg
-                        if highest_profit_pct >= 0.01:
-                            stop_line = max(0.005, highest_profit_pct - 0.005)
-                            if profit_pct <= stop_line:
-                                close_signal = True
-                                close_reason = f"🛡️ 猴市階梯停利：最高 {highest_profit_pct*100:.2f}% 回落至 {stop_line*100:.2f}%"
-                                reset_trailing_stops()
-                else:
-                    # 牛市/熊市開啟移動停利 (讓利潤奔跑) + 1.5% 保底機制
-                    if is_long:
-                        if close_price > trailing_highest:
-                            trailing_highest = close_price
-                            
-                        highest_profit_pct = (trailing_highest - current_pos_avg) / current_pos_avg
-                        
-                        if highest_profit_pct >= 0.015:
-                            # 階梯式防守線：永遠保持在最高點下方 0.5%，但絕對不低於 1.5%
-                            stop_line = max(0.015, highest_profit_pct - 0.005)
-                            
-                            if profit_pct <= stop_line:
-                                close_signal = True
-                                close_reason = f"🛡️ 階梯移動停利：最高 {highest_profit_pct*100:.2f}% 回落至防守線 {stop_line*100:.2f}%"
-                                reset_trailing_stops()
-                    else:
-                        if close_price < trailing_lowest:
-                            trailing_lowest = close_price
-                            
-                        highest_profit_pct = (current_pos_avg - trailing_lowest) / current_pos_avg
-                        
-                        if highest_profit_pct >= 0.015:
-                            # 階梯式防守線：永遠保持在最高點下方 0.5%，但絕對不低於 1.5%
-                            stop_line = max(0.015, highest_profit_pct - 0.005)
-                            
-                            if profit_pct <= stop_line:
-                                close_signal = True
-                                close_reason = f"🛡️ 階梯移動停利：最高 {highest_profit_pct*100:.2f}% 回落至防守線 {stop_line*100:.2f}%"
-                                reset_trailing_stops()
 
-                # 提早離場保護：一旦破均線且不利於當前倉位，提早保本/小賠出場，避免吃到 -3%
+                # === 跨環境換檔防護 (反向單立即止損切斷) ===
+                if "牛市" in macro_regime and not is_long:
+                    close_signal = True
+                    close_reason = "⚠️ [換檔防護] 轉為牛市，立刻止損逆勢空單！"
+                    reset_trailing_stops()
+                elif "熊市" in macro_regime and is_long:
+                    close_signal = True
+                    close_reason = "⚠️ [換檔防護] 轉為熊市，立刻止損逆勢多單！"
+                    reset_trailing_stops()
+
+                # === 統一移動停利 ===
                 if not close_signal:
-                    if is_long and close_price < middle_band and opens[-1] > middle_band:
-                        close_signal = True
-                        close_reason = "跌破 20T 均線 (動能轉弱，提早出場)"
-                    elif not is_long and close_price > middle_band and opens[-1] < middle_band:
-                        close_signal = True
-                        close_reason = "突破 20T 均線 (動能轉強，提早出場)"
-                        
+                    if is_long:
+                        if close_price > trailing_highest:
+                            trailing_highest = close_price
+                        highest_profit_pct = (trailing_highest - current_pos_avg) / current_pos_avg
+                        if highest_profit_pct >= 0.005:
+                            stop_line = max(0.005, highest_profit_pct - 0.005)
+                            if profit_pct <= stop_line:
+                                close_signal = True
+                                close_reason = f"🛡️ 統一階梯停利：最高 {highest_profit_pct*100:.2f}% 回落至 {stop_line*100:.2f}%"
+                                reset_trailing_stops()
+                    else:
+                        if close_price < trailing_lowest:
+                            trailing_lowest = close_price
+                        highest_profit_pct = (current_pos_avg - trailing_lowest) / current_pos_avg
+                        if highest_profit_pct >= 0.005:
+                            stop_line = max(0.005, highest_profit_pct - 0.005)
+                            if profit_pct <= stop_line:
+                                close_signal = True
+                                close_reason = f"🛡️ 統一階梯停利：最高 {highest_profit_pct*100:.2f}% 回落至 {stop_line*100:.2f}%"
+                                reset_trailing_stops()
+                                
                 if close_signal:
                     # 計算當前損益（含來回手續費 0.1%）
                     if is_long:
@@ -809,7 +784,9 @@ async def watch_kline_and_strategy():
                         # 1. 接近或突破壓力位 (天花板) -> 摸頂做空
                         if close_price >= resistance - (range_height * 0.40):
                             if current_rsi < 30:
-                                pass # 太頻繁印 log 會洗版，直接跳過不開倉
+                                pass # 不在極度超賣時做空
+                            elif "牛市" in macro_regime and current_rsi < 70:
+                                pass # 牛市順勢做多，除非 RSI >= 70 極度超買才反轉做空
                             else:
                                 last_buy_time = current_time
                                 print(f"⚠️ [全天候: 摸頂] 衝到天花板！箱頂:{resistance:.4f} (RSI={current_rsi:.1f})，觸發做空(Short)")
@@ -818,7 +795,9 @@ async def watch_kline_and_strategy():
                         # 2. 接近或跌破支撐位 (地板) -> 抄底做多
                         elif close_price <= support + (range_height * 0.40):
                             if current_rsi > 70:
-                                pass # 太頻繁印 log 會洗版，直接跳過不開倉
+                                pass # 不在極度超買時做多
+                            elif "熊市" in macro_regime and current_rsi > 30:
+                                pass # 熊市順勢做空，除非 RSI <= 30 極度超賣才反轉做多
                             else:
                                 last_buy_time = current_time
                                 print(f"⚠️ [全天候: 抄底] 跌到地板！箱底:{support:.4f} (RSI={current_rsi:.1f})，觸發做多(Long)")

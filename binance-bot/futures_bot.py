@@ -795,8 +795,12 @@ async def watch_kline_and_strategy():
                         
                         # 1. 接近或突破壓力位 (天花板) -> 摸頂做空
                         if close_price >= resistance - (range_height * 0.40):
-                            # 右側確認：曾經頂破 70，現在回落到 60 以下才做空
-                            if max_recent_rsi > 70 and current_rsi <= 60:
+                            # 動態 RSI 門檻：熊市因為很難到 70，所以下調門檻到 60/50
+                            short_peak_rsi = 60 if "熊市" in macro_regime else 70
+                            short_confirm_rsi = 50 if "熊市" in macro_regime else 60
+                            
+                            # 右側確認：曾經頂破門檻，現在回落才做空
+                            if max_recent_rsi > short_peak_rsi and current_rsi <= short_confirm_rsi:
                                 last_buy_time = current_time
                                 print(f"⚠️ [全天候: 摸頂] 右側確認！箱頂:{resistance:.4f} (最高RSI={max_recent_rsi:.1f} 回落至={current_rsi:.1f})，觸發做空(Short)")
                                 asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
@@ -805,8 +809,12 @@ async def watch_kline_and_strategy():
                             
                         # 2. 接近或跌破支撐位 (地板) -> 抄底做多
                         elif close_price <= support + (range_height * 0.40):
-                            # 右側確認：曾經跌破 30，現在反彈到 40 以上才做多
-                            if min_recent_rsi < 30 and current_rsi >= 40:
+                            # 動態 RSI 門檻：牛市因為很難跌破 30，所以上調門檻到 40/50
+                            long_dip_rsi = 40 if "牛市" in macro_regime else 30
+                            long_confirm_rsi = 50 if "牛市" in macro_regime else 40
+                            
+                            # 右側確認：曾經跌破門檻，現在反彈才做多
+                            if min_recent_rsi < long_dip_rsi and current_rsi >= long_confirm_rsi:
                                 last_buy_time = current_time
                                 print(f"⚠️ [全天候: 抄底] 右側確認！箱底:{support:.4f} (最低RSI={min_recent_rsi:.1f} 反彈至={current_rsi:.1f})，觸發做多(Long)")
                                 asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))

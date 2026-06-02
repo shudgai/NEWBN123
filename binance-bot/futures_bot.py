@@ -703,31 +703,31 @@ async def watch_kline_and_strategy():
 
                 # === 統一移動停利 ===
                 if not close_signal:
-                    # 盤整期或逆勢單提早停利門檻 (0.2%)
-                    is_monkey_or_counter = "猴市" in macro_regime or \
-                                           (is_long and "熊市" in macro_regime) or \
-                                           (not is_long and "牛市" in macro_regime)
-                    tp_threshold = 0.002 if is_monkey_or_counter else 0.005
+                    # 全局統一微利防護門檻 (0.2%)
+                    tp_threshold = 0.002
+                    # 追蹤回落距離設為 0.15% 
+                    # (確保在 0.2% 啟動時，停損線為 0.15%，扣除 0.1% 雙向市價手續費後，還能保本微利)
+                    trailing_distance = 0.0015
                     
                     if is_long:
                         if close_price > trailing_highest:
                             trailing_highest = close_price
                         highest_profit_pct = (trailing_highest - current_pos_avg) / current_pos_avg
                         if highest_profit_pct >= tp_threshold:
-                            stop_line = max(tp_threshold, highest_profit_pct - 0.005)
+                            stop_line = max(0.0015, highest_profit_pct - trailing_distance)
                             if profit_pct <= stop_line:
                                 close_signal = True
-                                close_reason = f"🛡️ 階梯停利 (門檻 {tp_threshold*100:.1f}%)：最高 {highest_profit_pct*100:.2f}% 回落至 {stop_line*100:.2f}%"
+                                close_reason = f"🛡️ 全天候微利防護：最高 {highest_profit_pct*100:.2f}% 回落至 {stop_line*100:.2f}%"
                                 reset_trailing_stops()
                     else:
                         if close_price < trailing_lowest:
                             trailing_lowest = close_price
                         highest_profit_pct = (current_pos_avg - trailing_lowest) / current_pos_avg
                         if highest_profit_pct >= tp_threshold:
-                            stop_line = max(tp_threshold, highest_profit_pct - 0.005)
+                            stop_line = max(0.0015, highest_profit_pct - trailing_distance)
                             if profit_pct <= stop_line:
                                 close_signal = True
-                                close_reason = f"🛡️ 階梯停利 (門檻 {tp_threshold*100:.1f}%)：最高 {highest_profit_pct*100:.2f}% 回落至 {stop_line*100:.2f}%"
+                                close_reason = f"🛡️ 全天候微利防護：最高 {highest_profit_pct*100:.2f}% 回落至 {stop_line*100:.2f}%"
                                 reset_trailing_stops()
                                 
                 if close_signal:

@@ -140,6 +140,23 @@ def read_bot_output(proc):
     if proc.returncode == 2:
         # 觸發全自動雷達換倉機制
         threading.Thread(target=auto_radar_switch, daemon=True).start()
+    elif bot_status["is_running"]:
+        # 非預期停止（使用者未手動關閉），啟動守護重啟機制
+        add_system_log("⚠️ [系統守護] 偵測到機器人意外停止，將在 5 秒後自動重啟...", "danger")
+        def daemon_restart():
+            time.sleep(5)
+            if bot_status["is_running"]:
+                global bot_process
+                symbol = bot_status.get("active_symbol", "SOLUSDT")
+                trade_amt = bot_status.get("trade_amount", 10.0)
+                sym = symbol.replace("USDT", "/USDT")
+                if "/USDT" not in sym:
+                    sym = symbol + "/USDT"
+                cmd = [sys.executable, "-u", "futures_bot.py", "--symbol", sym, "--amount", str(trade_amt)]
+                bot_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                threading.Thread(target=read_bot_output, args=(bot_process,), daemon=True).start()
+                add_system_log(f"🔄 [系統守護] 已成功自動重啟機器人 ({sym})", "success")
+        threading.Thread(target=daemon_restart, daemon=True).start()
 
 def auto_radar_switch(force_start=False):
     global bot_process, last_api_call

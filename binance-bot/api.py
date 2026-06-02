@@ -14,6 +14,7 @@ import requests
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 import uvicorn
+from functools import wraps
 
 # 載入環境變數
 load_dotenv()
@@ -46,6 +47,26 @@ else:
 # 系統日誌儲存
 system_logs = collections.deque(maxlen=100)
 
+# Binance API 速率限制 (每分鐘最多 1200 次 request weight)
+last_api_call = 0
+API_RATE_LIMIT = 1.0  # 每次呼叫至少間隔 1 秒
+
+def rate_limited_api(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        global last_api_call
+        elapsed = time.time() - last_api_call
+        if elapsed < API_RATE_LIMIT:
+            time.sleep(API_RATE_LIMIT - elapsed)
+        last_api_call = time.time()
+        return func(*args, **kwargs)
+    return wrapper
+
+# 雷達掃描冷卻 (手動掃描至少間隔 10 秒)
+last_radar_scan = 0
+RADAR_SCAN_COOLDOWN = 10.0
+radar_lock = threading.Lock()
+
 KNOWN_QUOTES = ["USDT", "BUSD", "BNB", "BTC", "ETH", "USDC"]
 
 def parse_symbol(symbol: str):
@@ -54,6 +75,11 @@ def parse_symbol(symbol: str):
         if s.endswith(q):
             return s[:-len(q)], q
     return s[:-4] if len(s) > 4 else s, s[-4:] if len(s) > 4 else s
+
+def paper_key(symbol: str) -> str:
+    """將交易所格式 (BNBUSDT) 轉換為 paper_state 的 key (BNB:USDT)"""
+    base, quote = parse_symbol(symbol.upper())
+    return f"{base}:{quote}"
 
 def add_system_log(text: str, level: str = "info"):
     now = datetime.datetime.now().strftime("%H:%M:%S")
@@ -65,9 +91,9 @@ bot_status = {
     "strategy": "Sniper Mode",
     "balance_quote": 0.0,
     "active_orders": 0,
-    "active_symbol": "SUIUSDT",
+    "active_symbol": "SOLUSDT",
     "regime": "猴市 (區間震盪)",
-    "trade_amount": 75.0,
+    "trade_amount": 50.0,
 }
 
 bot_process = None
@@ -86,6 +112,105 @@ def read_bot_output(proc):
             else:
                 add_system_log(f"[{bot_status.get('active_symbol', '')}] {line}", "info")
     proc.stdout.close()
+    proc.wait()
+    if proc.returncode == 2:
+        # 觸發全自動雷達換倉機制
+        threading.Thread(target=auto_radar_switch, daemon=True).start()
+
+def auto_radar_switch(force_start=False):
+    global bot_process, last_api_call
+    if not radar_lock.acquire(blocking=False):
+        add_system_log("⚠️ [雷達掃描] 前一次掃描尚未完成，跳過", "warning")
+        return bot_status.get("active_symbol")
+    try:
+        add_system_log("🔥 [雷達切換] 當前幣種已冷卻，啟動全自動尋標機制...", "warning")
+        targets = [
+            'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'SUIUSDT', 'XRPUSDT', 
+            '1000PEPEUSDT', 'DOGEUSDT', 'WIFUSDT', '1000SHIBUSDT', 'ORDIUSDT', 
+            'AVAXUSDT', 'OPUSDT', 'HYPEUSDT', 'LABUSDT', 'ZECUSDT'
+        ]
+        elapsed = time.time() - last_api_call
+        if elapsed < API_RATE_LIMIT:
+            time.sleep(API_RATE_LIMIT - elapsed)
+        last_api_call = time.time()
+        tickers = client.futures_ticker()
+        best_symbol = None
+        max_vol = -1.0
+        current_sym = bot_status.get("active_symbol")
+        
+        for t in tickers:
+            sym = t['symbol']
+            if sym in targets:
+                try:
+                    price_change = abs(float(t.get('priceChangePercent', 0)))
+                    if price_change > max_vol:
+                        max_vol = price_change
+                        best_symbol = sym
+                except:
+                    pass
+
+        if not best_symbol:
+            add_system_log("⚠️ [雷達掃描] 所有目標幣種皆無數據", "warning")
+            return current_sym
+
+        # 如果最佳幣種就是當前幣種
+        if best_symbol == current_sym:
+            add_system_log(f"✅ [雷達掃描] 當前 {best_symbol} 仍是最熱門 (24h震幅: {max_vol}%)，維持不變", "success")
+            # force_start 但已在正確幣種 → 若 bot 沒在跑則啟動
+            if force_start and not bot_status.get("is_running"):
+                sym_for_bot = best_symbol.replace("USDT", "/USDT")
+                if "/USDT" not in sym_for_bot:
+                    sym_for_bot = best_symbol + "/USDT"
+                trade_amt = bot_status.get("trade_amount", 10.0)
+                cmd = [sys.executable, "-u", "futures_bot.py", "--symbol", sym_for_bot, "--amount", str(trade_amt)]
+                bot_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                threading.Thread(target=read_bot_output, args=(bot_process,), daemon=True).start()
+                bot_status["is_running"] = True
+                add_system_log(f"🚀 已啟動獨立機器人 ({sym_for_bot}, 金額: {trade_amt})", "success")
+            return best_symbol
+
+        # 找到更優幣種，切換過去
+        add_system_log(f"🎯 [雷達鎖定] 發現最熱門目標: {best_symbol} (24h震幅: {max_vol}%)", "success")
+        bot_status["active_symbol"] = best_symbol
+        
+        if bot_status.get("is_running") or force_start:
+            if bot_process:
+                try:
+                    bot_process.terminate()
+                    bot_process.wait(timeout=2)
+                except:
+                    bot_process.kill()
+            sym_for_bot = best_symbol.replace("USDT", "/USDT")
+            if "/USDT" not in sym_for_bot:
+                sym_for_bot = best_symbol + "/USDT"
+            trade_amt = bot_status.get("trade_amount", 10.0)
+            cmd = [sys.executable, "-u", "futures_bot.py", "--symbol", sym_for_bot, "--amount", str(trade_amt)]
+            bot_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            threading.Thread(target=read_bot_output, args=(bot_process,), daemon=True).start()
+            bot_status["is_running"] = True
+            add_system_log(f"🚀 已啟動獨立機器人 ({sym_for_bot}, 金額: {trade_amt})", "success")
+        return best_symbol
+    except Exception as e:
+        add_system_log(f"🚨 [雷達掃描] 掃描失敗: {e}", "danger")
+        if not bot_status.get("is_running") and not force_start:
+            bot_status["is_running"] = False
+        return bot_status.get("active_symbol")
+    finally:
+        radar_lock.release()
+
+@app.get("/api/radar/scan")
+def api_radar_scan():
+    """手動觸發雷達掃描，找出當前波動最大的幣種並自動切換過去"""
+    global last_radar_scan
+    elapsed = time.time() - last_radar_scan
+    if elapsed < RADAR_SCAN_COOLDOWN:
+        return {"status": "success", "best_symbol": bot_status.get("active_symbol"), "cooldown": round(RADAR_SCAN_COOLDOWN - elapsed, 1)}
+    last_radar_scan = time.time()
+    try:
+        best = auto_radar_switch(force_start=True)
+        return {"status": "success", "best_symbol": best}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 MAX_TOTAL_INVEST_USDT = 80.0  # 總投資金額上限 (約 2500 TWD)
 FEE_RATE = 0.001  # Binance 現貨手續費 0.1%
@@ -119,10 +244,11 @@ def get_bot_status():
         try:
             symbol = bot_status.get("active_symbol", "SOLUSDT")
             _, quote_asset = parse_symbol(symbol)
-            balances = client.futures_account_balance()
+            account = client.futures_account()
+            balances = account["balances"]
             for b in balances:
                 if b["asset"] == quote_asset:
-                    bot_status["balance_quote"] = float(b["availableBalance"])
+                    bot_status["balance_quote"] = float(b["free"])
                     break
         except Exception as e:
             print(f"讀取實際餘額失敗: {e}")
@@ -183,8 +309,8 @@ def set_bot_symbol(symbol: str):
 @app.post("/api/bot-status/set-amount/{amount}")
 def set_bot_amount(amount: float):
     """設定當前機器人自動交易的單筆數量"""
-    if amount < 0 or amount > 150:
-        raise HTTPException(status_code=400, detail="單次交易數量必須限制在 0 至 150 之間")
+    if amount < 0 or amount > 1000:
+        raise HTTPException(status_code=400, detail="單次交易數量必須限制在 0 至 50 之間")
     bot_status["trade_amount"] = amount
     symbol = bot_status.get("active_symbol", "SOLUSDT")
     base_asset, _ = parse_symbol(symbol)
@@ -195,6 +321,40 @@ def set_bot_amount(amount: float):
 @app.post("/api/order/market-buy/{symbol}")
 def market_buy(symbol: str, amount: float = 150.0):
     """執行市價買入訂單"""
+    is_paper_trading = not api_key or api_key == "your_api_key_here"
+    if is_paper_trading:
+        try:
+            from update_paper_state import update_paper_state
+            ticker = client.futures_symbol_ticker(symbol=symbol.upper())
+            price = float(ticker['price'])
+            qty = amount / price
+            
+            # 使用 update_paper_state 更新虛擬帳本
+            active_sym = f"{symbol.upper().replace('USDT', '')}:USDT"
+            if ":USDT:USDT" in active_sym:
+                active_sym = active_sym.replace(":USDT:USDT", ":USDT")
+            update_paper_state(active_sym, "buy", price, qty)
+            
+            # 重啟機器人以清除記憶體中的孤兒倉位
+            global bot_process
+            if bot_process:
+                bot_process.terminate()
+                bot_process = None
+                add_system_log("♻️ 已手動加倉並自動重啟機器人...", "warning")
+                import subprocess, sys
+                sym = symbol.replace("USDT", "/USDT")
+                bot_process = subprocess.Popen([
+                    sys.executable, "-u", "futures_bot.py",
+                    "--symbol", sym,
+                    "--amount", str(bot_status.get("trade_amount", 30.0))
+                ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                threading.Thread(target=read_bot_output, args=(bot_process,), daemon=True).start()
+                
+            order = {"orderId": "manual_paper", "executedQty": str(qty)}
+            return {"status": "success", "order": order}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"模擬買入失敗: {str(e)}")
+            
     if not api_key or api_key == "your_api_key_here":
         raise HTTPException(status_code=400, detail="請先在 .env 設定 API 金鑰才能下單")
     try:
@@ -210,15 +370,90 @@ def market_buy(symbol: str, amount: float = 150.0):
         else:
             qty_str = f"{qty:.1f}"
 
+        if symbol_upper == 'USDCUSDT':
+            order = client.futures_create_order(
+                symbol=symbol_upper,
+                side=Client.SIDE_BUY,
+                type=Client.ORDER_TYPE_LIMIT,
+                timeInForce='GTC',
+                price='0.9999',
+                quantity=qty_str
+            )
+        else:
+            order = client.futures_create_order(
+                symbol=symbol_upper,
+                side=Client.SIDE_BUY,
+                type=Client.ORDER_TYPE_MARKET,
+                quantity=qty_str
+            )
+        return {"status": "success", "order": order}
+    except BinanceAPIException as e:
+        raise HTTPException(status_code=400, detail=f"幣安下單失敗: {e.message}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"系統錯誤: {str(e)}")
+
+@app.post("/api/order/market-short/{symbol}")
+def market_short(symbol: str, amount: float = 150.0):
+    """執行市價做空訂單"""
+    is_paper_trading = not api_key or api_key == "your_api_key_here"
+    if is_paper_trading:
+        try:
+            from update_paper_state import update_paper_state
+            ticker = client.futures_symbol_ticker(symbol=symbol.upper())
+            price = float(ticker['price'])
+            qty = amount / price
+            
+            # 使用 update_paper_state 更新虛擬帳本
+            active_sym = f"{symbol.upper().replace('USDT', '')}:USDT"
+            if ":USDT:USDT" in active_sym:
+                active_sym = active_sym.replace(":USDT:USDT", ":USDT")
+            update_paper_state(active_sym, "sell", price, qty)
+            
+            # 重啟機器人以清除記憶體中的孤兒倉位
+            global bot_process
+            if bot_process:
+                bot_process.terminate()
+                bot_process = None
+                add_system_log("♻️ 已手動加倉並自動重啟機器人...", "warning")
+                import subprocess, sys
+                sym = symbol.replace("USDT", "/USDT")
+                bot_process = subprocess.Popen([
+                    sys.executable, "-u", "futures_bot.py",
+                    "--symbol", sym,
+                    "--amount", str(bot_status.get("trade_amount", 30.0))
+                ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                threading.Thread(target=read_bot_output, args=(bot_process,), daemon=True).start()
+                
+            order = {"orderId": "manual_paper", "executedQty": str(qty)}
+            return {"status": "success", "order": order}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"模擬做空失敗: {str(e)}")
+            
+    if not api_key or api_key == "your_api_key_here":
+        raise HTTPException(status_code=400, detail="請先在 .env 設定 API 金鑰才能手動開倉")
+    try:
+        symbol_upper = symbol.upper()
+        ticker = client.futures_symbol_ticker(symbol=symbol_upper)
+        price = float(ticker['price'])
+        qty = amount / price
+        
+        # 簡單計算精確度
+        if "BTC" in symbol_upper:
+            qty_str = f"{qty:.4f}"
+        elif "ETH" in symbol_upper:
+            qty_str = f"{qty:.3f}"
+        else:
+            qty_str = f"{qty:.1f}"
+
         order = client.futures_create_order(
             symbol=symbol_upper,
-            side=Client.SIDE_BUY,
+            side=Client.SIDE_SELL,
             type=Client.ORDER_TYPE_MARKET,
             quantity=qty_str
         )
         return {"status": "success", "order": order}
     except BinanceAPIException as e:
-        raise HTTPException(status_code=400, detail=f"幣安下單失敗: {e.message}")
+        raise HTTPException(status_code=400, detail=f"幣安做空失敗: {e.message}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"系統錯誤: {str(e)}")
 
@@ -239,11 +474,13 @@ def market_sell(symbol: str):
                 sym = symbol.upper()
                 positions = state.get("positions", {})
                 
-                active_sym = f"{sym}:USDT"
-                pos = positions.get(active_sym)
-                if pos is None or (pos.get("qty", 0.0) == 0.0 and sym in positions and positions[sym].get("qty", 0.0) != 0.0):
-                    pos = positions.get(sym) or {}
-                    active_sym = sym
+                pk = paper_key(sym)
+                active_sym = pk
+                pos = positions.get(pk)
+                if pos is None:
+                    pos = positions.get(f"{sym}:USDT") or positions.get(sym) or {}
+                    if pos:
+                        active_sym = f"{sym}:USDT" if positions.get(f"{sym}:USDT") else sym
                     
                 qty = float(pos.get("qty", 0.0))
                 
@@ -268,11 +505,13 @@ def market_sell(symbol: str):
                         add_system_log("♻️ 已重置虛擬倉位並自動重啟機器人...", "warning")
                         # 重新啟動
                         import subprocess, sys
+                        sym = symbol.replace("USDT", "/USDT")
                         bot_process = subprocess.Popen([
-                            sys.executable, "futures_bot.py",
-                            "--symbol", f"{symbol.replace('USDT', '')}/USDT:USDT",
+                            sys.executable, "-u", "futures_bot.py",
+                            "--symbol", sym,
                             "--amount", str(bot_status.get("trade_amount", 30.0))
                         ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                        threading.Thread(target=read_bot_output, args=(bot_process,), daemon=True).start()
                         
                     return {"status": "success", "detail": f"模擬平倉成功！獲利 {pnl:.2f} USDT"}
             return {"status": "error", "detail": "找不到虛擬倉位"}
@@ -283,23 +522,33 @@ def market_sell(symbol: str):
         raise HTTPException(status_code=400, detail="請先在 .env 設定 API 金鑰才能下單")
     try:
         symbol_upper = symbol.upper()
-        pos_list = client.futures_position_information(symbol=symbol_upper)
+        account = client.futures_account()
+        pos_list = [b for b in account["balances"] if b["asset"] == symbol_upper.replace("USDT","")]
         if not pos_list:
             raise HTTPException(status_code=400, detail="找不到合約倉位資訊")
             
-        qty = float(pos_list[0]['positionAmt'])
+        qty = float(pos_list[0]['free'])
         if qty == 0:
             raise HTTPException(status_code=400, detail="當前無合約倉位可平倉")
 
         side = Client.SIDE_SELL if qty > 0 else Client.SIDE_BUY
         
-        order = client.futures_create_order(
-            symbol=symbol_upper,
-            side=side,
-            type=Client.ORDER_TYPE_MARKET,
-            quantity=abs(qty),
-            reduceOnly=True
-        )
+        if symbol_upper == 'USDCUSDT':
+            order = client.futures_create_order(
+                symbol=symbol_upper,
+                side=side,
+                type=Client.ORDER_TYPE_LIMIT,
+                timeInForce='GTC',
+                price='1.0000',
+                quantity=abs(qty)
+            )
+        else:
+            order = client.futures_create_order(
+                symbol=symbol_upper,
+                side=side,
+                type=Client.ORDER_TYPE_MARKET,
+                quantity=abs(qty)
+            )
         return {"status": "success", "order": order}
     except BinanceAPIException as e:
         raise HTTPException(status_code=400, detail=f"幣安下單失敗: {e.message}")
@@ -322,6 +571,18 @@ def get_price(symbol: str):
         raise HTTPException(status_code=400, detail=f"幣安 API 錯誤: {e.message}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"系統錯誤: {str(e)}")
+
+@app.get("/api/prices")
+def get_all_prices():
+    """一次獲取所有合約交易對的即時價格"""
+    try:
+        tickers = client.futures_ticker()
+        prices = {}
+        for t in tickers:
+            prices[t['symbol']] = float(t.get('lastPrice', 0))
+        return {"status": "success", "data": prices}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/exchangerate/usdtwd")
 def get_usd_twd():
@@ -357,11 +618,11 @@ def get_position(symbol: str):
                 sym = symbol.upper()
                 positions = state.get("positions", {})
                 
-                # 優先拿 :USDT 後綴的倉位 (因為目前合約都用這個後綴)
-                # 如果沒有，才拿原本的
-                pos = positions.get(f"{sym}:USDT")
-                if pos is None or (pos.get("qty", 0.0) == 0.0 and sym in positions and positions[sym].get("qty", 0.0) != 0.0):
-                    pos = positions.get(sym) or {}
+                # 用統一格式查 paper_state key (BNBUSDT → BNB:USDT)
+                pk = paper_key(sym)
+                pos = positions.get(pk)
+                if pos is None:
+                    pos = positions.get(f"{sym}:USDT") or positions.get(sym) or {}
                 
                 qty = float(pos.get("qty", 0.0))
                 avg_price = float(pos.get("avg_price", 0.0))
@@ -403,7 +664,8 @@ def get_position(symbol: str):
         symbol_upper = symbol.upper()
         base_asset, quote_asset = parse_symbol(symbol_upper)
         
-        pos_list = client.futures_position_information(symbol=symbol_upper)
+        account = client.futures_account()
+        pos_list = [b for b in account["balances"] if b["asset"] == symbol_upper.replace("USDT","")]
         if not pos_list:
             raise Exception("No position data returned")
             
@@ -445,7 +707,7 @@ def get_trades(symbol: str):
                 with open(paper_state_file, "r") as f:
                     state = json.load(f)
                     trades = state.get("trades", [])
-                    symbol_trades = [t for t in trades if t.get("symbol") == symbol.upper()]
+                    symbol_trades = [t for t in trades if t.get("symbol") in (symbol.upper(), paper_key(symbol))]
                     return list(reversed(symbol_trades))[:15]
             except:
                 return []
@@ -482,7 +744,7 @@ def get_klines(symbol: str, interval: str = "1m", limit: int = 60):
     """獲取 K 線數據 (OHLCV)"""
     try:
         symbol_upper = symbol.upper()
-        klines = client.get_klines(symbol=symbol_upper, interval=interval, limit=limit)
+        klines = client.futures_klines(symbol=symbol_upper, interval=interval, limit=limit)
         result = []
         for k in klines:
             result.append({
@@ -504,3 +766,16 @@ def get_klines(symbol: str, interval: str = "1m", limit: int = 60):
 if __name__ == "__main__":
     # 啟動 Uvicorn 伺服器，直接在 8081 埠口執行（同時提供靜態網頁與 API，省去多個埠口的防火牆問題）
     uvicorn.run(app, host="0.0.0.0", port=8081)
+
+@app.post("/api/order/cancel-all/{symbol}")
+def cancel_all_orders(symbol: str):
+    try:
+        if PAPER_TRADING:
+            return {"status": "success", "msg": "模擬交易不支援撤單"}
+        symbol_upper = symbol.upper()
+        res = client.futures_cancel_all_open_orders(symbol=symbol_upper)
+        add_system_log(f"🗑️ 已手動撤銷 {symbol_upper} 所有掛單", "warning")
+        return {"status": "success", "msg": "所有掛單已撤銷", "data": res}
+    except Exception as e:
+        add_system_log(f"撤單失敗: {str(e)}", "danger")
+        raise HTTPException(status_code=400, detail=str(e))

@@ -18,7 +18,8 @@ def update_paper_state(symbol, side, price, qty, is_close=False, pnl=0.0):
         except:
             pass
             
-    pos = state["positions"].get(symbol, {"qty": 0.0, "avg_price": 0.0, "realized_pnl": 0.0})
+    state.setdefault("trades", [])
+    pos = state["positions"].setdefault(symbol, {"qty": 0.0, "avg_price": 0.0, "realized_pnl": 0.0})
     
     trade = {
         "id": str(uuid.uuid4())[:8],

@@ -18,12 +18,9 @@ exchange = ccxtpro.binance({
     'apiKey': os.getenv('BINANCE_API_KEY') or None,     # 從 .env 讀取 API Key
     'secret': os.getenv('BINANCE_API_SECRET') or None,   # 從 .env 讀取 Secret Key
     'enableRateLimit': True,
-    'options': {
-        'defaultType': 'future',             # 操作合約 (Futures)
-    }
 })
 USE_TESTNET = os.getenv("USE_TESTNET", "True").lower() in ("true", "1", "yes")
-PAPER_TRADING = not bool(os.getenv('BINANCE_API_KEY')) or not USE_TESTNET
+PAPER_TRADING = not bool(os.getenv('BINANCE_API_KEY'))
 
 if USE_TESTNET:
     # 繞過 CCXT 的 set_sandbox_mode 棄用限制，手動覆寫合約測試網 URL
@@ -44,7 +41,7 @@ args = parser.parse_args()
 # 交易設定
 symbol = args.symbol                      # 透過參數決定的交易對
 if not symbol.endswith(':USDT') and '/USDT' in symbol:
-    symbol = symbol + ':USDT'             # 確保使用合約幣對格式 (e.g. SUI/USDT:USDT)
+    symbol = symbol + ':USDT'             # 確保使用合約幣對格式
 timeframe = '1m'                          # 1分鐘K線
 quote_amount = args.amount                # 下單金額 (USDT)
 
@@ -54,14 +51,14 @@ ORDER_BOOK_THRESHOLD_USD = 100000.0   # 盤口大單追蹤門檻 (10萬美金)
 ATR_TP_MULTIPLIER = 0.0       # 取消動態放大，只求最快平倉
 ATR_SL_MULTIPLIER = 1.5       # 止損距離 (ATR 倍數)
 MIN_TP_PCT = 0.0015     # 全局最低停利標準：0.15%
-MIN_SL_PCT = 0.015       # 止損 1.5%
-SWING_TP_PCT = 0.015     # 波段目標 1.5%（另一半倉位）
+MIN_SL_PCT = 0.03       # 止損 3%
+SWING_TP_PCT = 0.008     # 波段目標 0.8%
 current_atr = 0.0                         # 當前 ATR 值（由 K線模組更新）
 RSI_PERIOD = 14                           # RSI 計算週期
 RSI_OVERBOUGHT = 70                       # RSI 超買門檻（高於此不買入）
 current_rsi = 50.0                        # 當前 RSI 值
 macro_regime = "猴市 (區間震盪)"          # 全局大趨勢狀態
-default_amount = 50.0 if "猴市" in macro_regime else 30.0
+default_amount = 150.0
 
 # 🎯 物理防火牆：每日最大虧損限額設定
 INITIAL_BALANCE = 150.0                   # 你的總本金 150 USDT
@@ -108,10 +105,35 @@ latest_ws_price = 0.0
 current_pos_qty = 0.0
 current_pos_avg = 0.0
 position_open_time = 0.0  # 記錄開倉時間，防止動態平倉秒砍
-partial_tp_hit = False    # 是否已執行部分止盈（預留一半做波段）
+
 
 # 統一 symbol 格式：BNB/USDT:USDT -> BNB:USDT (與手動下單格式一致)
 SYMBOL_KEY = symbol.replace('/', '').replace(':USDT', '').replace('USDT', '') + ':USDT'
+
+# 雷達換倉：追蹤最後活動時間
+import sys
+last_action_time = time.time()
+
+# 移動停利狀態變數
+trailing_highest = 0.0
+trailing_lowest = float('inf')
+
+# 合約槓桿倍數 (由 detect_regime 根據 1h 偏離度動態調整)
+LEVERAGE = 5.0
+current_1h_deviation = 0.0
+
+def update_dynamic_leverage():
+    global LEVERAGE, current_1h_deviation
+    abs_dev = abs(current_1h_deviation)
+    old = LEVERAGE
+    if abs_dev > 0.20:
+        LEVERAGE = 2
+    elif abs_dev > 0.10:
+        LEVERAGE = 5
+    else:
+        LEVERAGE = 10
+    if LEVERAGE != old:
+        print(f"⚙️ [動態槓桿] 偏離度={current_1h_deviation*100:.1f}% → 調整為 {LEVERAGE}x")
 
 async def initialize_simulated_position():
     global simulated_base_amt, position_open_time
@@ -184,10 +206,10 @@ async def execute_order_and_risk(side, price):
             except:
                 pass
         
-        # 動態持倉上限 = 當前總資金 (實現複利滾存)
-        dynamic_max_position = current_balance
+        # 動態持倉上限 = 當前總資金 (實現複利滾存) * 槓桿倍數
+        dynamic_max_position = current_balance * LEVERAGE
     
-        # 計算剩餘可下單額度
+        # 計算剩餘可下單額度 (扣除已使用保證金的槓桿部位)
         current_position_usd = abs(simulated_base_amt) * current_p
         available_margin = dynamic_max_position - current_position_usd
     
@@ -195,20 +217,15 @@ async def execute_order_and_risk(side, price):
             print(f"⚠️ [風控攔截] 模擬倉位已達上限 {dynamic_max_position:.2f} USDT，暫停加倉！")
             return
     
-        # 根據大趨勢決定單筆下單金額：猴市50、牛熊市30
-        if "猴市" in macro_regime:
-            base_trade_amount = 50.0
-        else:
-            base_trade_amount = 30.0
-        
-        # 若餘額不足設定金額，則用剩餘金額；否則用設定金額
-        actual_quote_amount = min(base_trade_amount, available_margin)
+        # 【全倉梭哈 (All-in) 模式】
+        # 無視介面上輸入的金額，一律將 (當下本金 × 5倍槓桿) 的最大可用額度全部打出去！
+        actual_quote_amount = available_margin
         
         if actual_quote_amount < 1.0:
             print(f"⚠️ [額度限制] 剩餘可用額度 {actual_quote_amount:.2f} USDT 過低，不再加倉")
             return
             
-        print(f"💰 [{macro_regime}] 下單 {actual_quote_amount:.2f} USDT (設定:{base_trade_amount:.0f}, 可用:{available_margin:.2f})")
+        print(f"💰 [{macro_regime}] 下單 {actual_quote_amount:.2f} USDT (設定:{quote_amount:.0f}, 可用:{available_margin:.2f})")
         print(f"@@AMOUNT@@{actual_quote_amount}")
     
         try:
@@ -236,6 +253,10 @@ async def execute_order_and_risk(side, price):
                 )
                 avg_price = open_order.get('average') or price
                 print(f"✅ [下單模組] {direction_str} 開倉成功！實際成交均價: {avg_price} | 單號: {open_order['id']}")
+            
+            # 更新活動時間
+            global last_action_time
+            last_action_time = time.time()
                 
         except Exception as e:
             print(f"🚨 [下單/風控模組嚴重致命錯誤]: {e}")
@@ -268,16 +289,12 @@ async def update_position_info():
         except Exception as e:
             await asyncio.sleep(1.0)
 
-async def close_entire_position(close_side, actual_close_amt, current_p, pos_avg, partial_close=False):
+async def close_entire_position(close_side, actual_close_amt, current_p, pos_avg):
     global simulated_base_amt
     if PAPER_TRADING:
         close_pnl = (current_p - pos_avg) * actual_close_amt if close_side == 'sell' else (pos_avg - current_p) * actual_close_amt
-        if partial_close:
-            simulated_base_amt -= actual_close_amt * (1 if close_side == 'sell' else -1)
-            print(f"✅ [模擬部分平倉] 平 {actual_close_amt} 顆 | 盈虧: {close_pnl:.4f} USDT | 剩餘: {abs(simulated_base_amt):.6f}")
-        else:
-            simulated_base_amt = 0.0
-            print(f"✅ [模擬平倉成功] 全倉已平！盈虧: {close_pnl:.4f} USDT")
+        simulated_base_amt = 0.0
+        print(f"✅ [模擬平倉成功] 全倉已平！盈虧: {close_pnl:.4f} USDT")
         update_paper_state(SYMBOL_KEY, close_side, current_p, actual_close_amt, is_close=True, pnl=close_pnl)
     else:
         close_action = "賣出平多" if close_side == 'sell' else "買入平空"
@@ -290,12 +307,19 @@ async def close_entire_position(close_side, actual_close_amt, current_p, pos_avg
                 params={'reduceOnly': True}
             )
             print(f"✅ [全局平倉成功] 已成功{close_action}！數量: {actual_close_amt:.6f}")
+            # 更新活動時間
+            global last_action_time
+            last_action_time = time.time()
         except Exception as e:
-            print(f"⚠️ [全局平倉失敗]: {e}")
+            print(f"🚨 [平倉錯誤]: {e}")
+        
+def reset_trailing_stops():
+    global trailing_highest, trailing_lowest
+    trailing_highest = 0.0
+    trailing_lowest = float('inf')
 
 async def monitor_position_tp_sl():
-    """ 獨立監控持倉：A/B 分批出場 — 短線先平一半，另一半抱波段 """
-    global partial_tp_hit
+    """ 獨立監控持倉：波段止盈/止損 """
     while True:
         try:
             await asyncio.sleep(0.5)
@@ -320,54 +344,35 @@ async def monitor_position_tp_sl():
                     pos_avg = float(p.get('entryPrice', 0.0))
 
             if abs(pos_qty) <= 0.000001 or pos_avg <= 0:
-                partial_tp_hit = False
                 continue
 
             ticker = await exchange.fetch_ticker(symbol)
             current_p = ticker['last']
 
-            # TP1 (短線, 平一半) — regime-based
-            tp_quick_pct = 0.003 if "猴市" in macro_regime else 0.005
-            # TP2 (波段, 平剩餘) + SL — 固定 1.5%
-            tp_swing_pct = SWING_TP_PCT
-            sl_pct = MIN_SL_PCT
+            # TP: 猴市 0.6%, 牛熊市 0.8%; SL: 固定 3%
+            tp_swing_pct = 0.006 if "猴市" in macro_regime else SWING_TP_PCT
+            sl_pct = 0.03
 
             if pos_qty > 0:
-                tp_quick = pos_avg * (1 + tp_quick_pct)
                 tp_swing = pos_avg * (1 + tp_swing_pct)
                 sl = pos_avg * (1 - sl_pct)
 
                 if current_p >= tp_swing:
-                    print(f"🎯 [波段止盈] 多單剩餘均價 {pos_avg:.4f}，現價 {current_p:.4f} >= {tp_swing:.4f} (+{tp_swing_pct*100:.1f}%)，全平！")
+                    print(f"🎯 [波段止盈] 多單均價 {pos_avg:.4f}，現價 {current_p:.4f} >= {tp_swing:.4f} (+{tp_swing_pct*100:.1f}%)，全平！")
                     await close_entire_position('sell', abs(pos_qty), current_p, pos_avg)
-                    partial_tp_hit = False
-                elif current_p >= tp_quick and not partial_tp_hit:
-                    half_qty = abs(pos_qty / 2)
-                    print(f"🎯 [短線止盈] 多單均價 {pos_avg:.4f}，現價 {current_p:.4f} >= {tp_quick:.4f} (+{tp_quick_pct*100:.1f}%)，平一半！")
-                    await close_entire_position('sell', half_qty, current_p, pos_avg, partial_close=True)
-                    partial_tp_hit = True
                 elif current_p <= sl:
                     print(f"🛑 [止損] 多單均價 {pos_avg:.4f}，現價 {current_p:.4f} <= {sl:.4f} (-{sl_pct*100:.1f}%)，全平！")
                     await close_entire_position('sell', abs(pos_qty), current_p, pos_avg)
-                    partial_tp_hit = False
             else:
-                tp_quick = pos_avg * (1 - tp_quick_pct)
                 tp_swing = pos_avg * (1 - tp_swing_pct)
                 sl = pos_avg * (1 + sl_pct)
 
                 if current_p <= tp_swing:
-                    print(f"🎯 [波段止盈] 空單剩餘均價 {pos_avg:.4f}，現價 {current_p:.4f} <= {tp_swing:.4f} (-{tp_swing_pct*100:.1f}%)，全平！")
+                    print(f"🎯 [波段止盈] 空單均價 {pos_avg:.4f}，現價 {current_p:.4f} <= {tp_swing:.4f} (-{tp_swing_pct*100:.1f}%)，全平！")
                     await close_entire_position('buy', abs(pos_qty), current_p, pos_avg)
-                    partial_tp_hit = False
-                elif current_p <= tp_quick and not partial_tp_hit:
-                    half_qty = abs(pos_qty / 2)
-                    print(f"🎯 [短線止盈] 空單均價 {pos_avg:.4f}，現價 {current_p:.4f} <= {tp_quick:.4f} (-{tp_quick_pct*100:.1f}%)，平一半！")
-                    await close_entire_position('buy', half_qty, current_p, pos_avg, partial_close=True)
-                    partial_tp_hit = True
                 elif current_p >= sl:
                     print(f"🛑 [止損] 空單均價 {pos_avg:.4f}，現價 {current_p:.4f} >= {sl:.4f} (+{sl_pct*100:.1f}%)，全平！")
                     await close_entire_position('buy', abs(pos_qty), current_p, pos_avg)
-                    partial_tp_hit = False
 
         except Exception as e:
             pass
@@ -377,7 +382,7 @@ async def monitor_position_tp_sl():
 # =====================================================================
 async def monitor_macro_trend():
     """ 週期性檢查 1H 級別的 20T 均線，判斷大趨勢 (牛/熊/猴) """
-    global macro_regime, current_pos_qty
+    global macro_regime, current_pos_qty, current_1h_deviation
     while True:
         try:
             # 先抓取 BTC 大盤 1 小時 K 線
@@ -400,29 +405,33 @@ async def monitor_macro_trend():
                 coin_deviation = (current_price - sma_20) / sma_20
                 
                 old_regime = macro_regime
+                old_dev = current_1h_deviation
                 
                 # 邏輯：BTC 大盤擁有最高決策權
-                if btc_deviation > 0.005:
+                if btc_deviation > 0.02:
                     macro_regime = "牛市 (大盤BTC帶飛)"
                     print_dev = btc_deviation
-                elif btc_deviation < -0.005:
+                elif btc_deviation < -0.02:
                     macro_regime = "熊市 (大盤BTC帶崩)"
                     print_dev = btc_deviation
                 else:
                     # 大盤震盪時，才看個別幣種
-                    if coin_deviation > 0.005:
+                    if coin_deviation > 0.02:
                         macro_regime = "牛市 (獨立走強)"
-                    elif coin_deviation < -0.005:
+                    elif coin_deviation < -0.02:
                         macro_regime = "熊市 (獨立走弱)"
                     else:
                         macro_regime = "猴市 (區間震盪)"
                     print_dev = coin_deviation
                 
-                if old_regime != macro_regime:
-                    amount = 50.0 if "猴市" in macro_regime else 30.0
+                current_1h_deviation = print_dev
+                update_dynamic_leverage()
+                
+                if old_regime != macro_regime or abs(old_dev - current_1h_deviation) > 0.03:
+                    amount = 50.0
                     print(f"@@REGIME@@{macro_regime}")
                     print(f"@@AMOUNT@@{amount}")
-                    print(f"🌍 [環境感知] 大趨勢已切換為: {macro_regime} | 下單金額: {amount} USDT (偏離: {print_dev*100:.2f}%)")
+                    print(f"🌍 [環境感知] {macro_regime} | 偏離: {print_dev*100:.2f}% | 槓桿: {LEVERAGE}x")
         except Exception as e:
             print(f"⚠️ [環境感知] 無法獲取 1H 趨勢: {e}")
         
@@ -442,24 +451,46 @@ async def watch_kline_and_strategy():
     try:
         historical_ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=30)
         closes_history = [x[4] for x in historical_ohlcv]
+        volumes_history = [x[5] for x in historical_ohlcv]
     except Exception as e:
         print(f"⚠️ 無法預載歷史 K 線: {e}")
+        historical_ohlcv = []
         closes_history = []
-        
+        volumes_history = []
+    
+    ohlcv_buffer = list(historical_ohlcv)  # 自己維護的 OHLCV 緩衝區
+    
     while True:
         try:
-            ohlcv = await exchange.watch_ohlcv(symbol, timeframe)
+            new_ohlcv = await exchange.watch_ohlcv(symbol, timeframe)
             
-            # 合併歷史數據與 WebSocket 即時數據
-            # 注意：watch_ohlcv 回傳的是自帶緩存的 list，我們把歷史的補在前面，並去重疊
-            combined_closes = closes_history + [x[4] for x in ohlcv]
+            # 將新數據合併進緩衝區 (避免 watch_ohlcv 只回傳遞增數據)
+            if new_ohlcv:
+                ohlcv_buffer.extend(new_ohlcv)
+                # 去重：保留最後 60 筆 (足夠 30 筆計算)
+                seen = {}
+                unique = []
+                for x in ohlcv_buffer:
+                    ts = x[0]
+                    if ts not in seen:
+                        seen[ts] = True
+                        unique.append(x)
+                ohlcv_buffer = unique[-60:]
+            
+            ohlcv = ohlcv_buffer[-30:]
+            
             # 只取最後 30 筆即可
-            closes = np.array(combined_closes[-30:])
+            closes = np.array([x[4] for x in ohlcv])
+            volumes = np.array([x[5] for x in ohlcv])
             highs = np.array([x[2] for x in ohlcv])
             opens = np.array([x[1] for x in ohlcv])
             
             if len(closes) < 20:
                 continue
+                
+            # 計算成交量均線 (20MA)
+            vol_ma20 = np.mean(volumes[-20:])
+            current_vol = volumes[-1]
 
             # 計算 ATR
             for i in range(len(ohlcv)):
@@ -488,6 +519,11 @@ async def watch_kline_and_strategy():
             middle_band = np.mean(closes[-20:])
             close_price = closes[-1]
             deviation = (close_price - middle_band) / middle_band
+            
+            # 每 60 秒印一次狀態
+            if not hasattr(watch_kline_and_strategy, '_status_log') or time.time() - watch_kline_and_strategy._status_log > 60:
+                watch_kline_and_strategy._status_log = time.time()
+                print(f"📊 [狀態] RSI={current_rsi:.1f} 偏離={deviation*100:.2f}% 持倉={current_pos_qty:.4f}  regime={macro_regime}")
             
             # 🔥 高溫煞車系統：RSI 極端時禁止開新倉，但仍可平倉
             rsi_extreme = current_rsi > 75.0 or current_rsi < 20.0
@@ -524,15 +560,31 @@ async def watch_kline_and_strategy():
                 if is_long:
                     if bull_market:
                         # 多單遇牛市 → 繼續留著！只有出現「要下跌的訊號」才出倉
-                        # 下跌訊號：RSI 超買轉黑、或跌破均線
-                        if current_rsi > 70 and close_price < current_open:
+                        # 1. 記錄歷史最高價 (Trailing Stop)
+                        global trailing_highest
+                        if close_price > trailing_highest:
+                            trailing_highest = close_price
+                        
+                        # 2. 回檔 1% 觸發移動停利
+                        if trailing_highest > 0 and close_price < trailing_highest * 0.99:
                             close_signal = True
-                            close_reason = "牛市多單：RSI 超買且反轉收黑 (感受到下跌訊號)"
+                            close_reason = f"🐂 牛市移動停利：從最高點 {trailing_highest:.4f} 回檔 1% (當前 {close_price:.4f})"
+                            reset_trailing_stops()
+                        # 3. 下跌訊號：RSI 超買轉黑、或跌破均線、或爆量收黑
+                        elif current_vol > vol_ma20 * 2.5 and close_price < current_open:
+                            close_signal = True
+                            close_reason = f"牛市多單：爆量收黑 (當前量 {current_vol:.1f} > 均量 {vol_ma20:.1f} 的 2.5 倍)，主力倒貨反轉！"
+                            reset_trailing_stops()
+                        elif current_rsi > 65 and close_price < current_open:
+                            close_signal = True
+                            close_reason = "牛市多單：RSI 達 65 且反轉收黑 (提早獲利了結)"
+                            reset_trailing_stops()
                         elif close_price < middle_band and opens[-1] > middle_band:
                             close_signal = True
                             close_reason = "牛市多單：跌破 20T 均線 (下跌動能確認)"
+                            reset_trailing_stops()
                         else:
-                            print(f"🐂 [順風保護] 多單遇牛市，繼續持有！RSI:{current_rsi:.1f}，偏離:{deviation*100:.3f}%")
+                            print(f"🐂 [順風保護] 多單遇牛市，繼續持有！RSI:{current_rsi:.1f}，最高:{trailing_highest:.4f}")
                     elif bear_market:
                         # 多單遇熊市 → 僅在出現實際下跌訊號時才出倉，避免每根K棒都平
                         if close_price < current_open and close_price < middle_band:
@@ -548,21 +600,33 @@ async def watch_kline_and_strategy():
                         elif close_price >= resistance - (range_height * 0.1) and close_price < current_open:
                             close_signal = True
                             close_reason = "壓力區出現紅K (遇壓回檔)"
-                        elif current_rsi > 70 and close_price < current_open:
+                        elif current_rsi > 65 and close_price < current_open:
                             close_signal = True
-                            close_reason = "RSI 超買且反轉收黑"
+                            close_reason = "猴市多單：RSI 達 65 且反轉收黑 (短波段停利)"
                 else:
                     if bear_market:
                         # 空單遇熊市 → 繼續留著！只有出現「要上漲的訊號」才出倉
-                        # 上漲訊號：RSI 超賣轉紅、或突破均線
-                        if current_rsi < 30 and close_price > current_open:
+                        # 1. 記錄歷史最低價 (Trailing Stop)
+                        global trailing_lowest
+                        if close_price < trailing_lowest:
+                            trailing_lowest = close_price
+                        
+                        # 2. 反彈 1% 觸發移動停利
+                        if trailing_lowest != float('inf') and close_price > trailing_lowest * 1.01:
+                            close_signal = True
+                            close_reason = f"🐻 熊市移動停利：從最低點 {trailing_lowest:.4f} 反彈 1% (當前 {close_price:.4f})"
+                            reset_trailing_stops()
+                        # 3. 上漲訊號：RSI 超賣轉紅、或突破均線
+                        elif current_rsi < 30 and close_price > current_open:
                             close_signal = True
                             close_reason = "熊市空單：RSI 超賣且反轉收紅 (感受到上漲訊號)"
+                            reset_trailing_stops()
                         elif close_price > middle_band and opens[-1] < middle_band:
                             close_signal = True
                             close_reason = "熊市空單：突破 20T 均線 (上漲動能確認)"
+                            reset_trailing_stops()
                         else:
-                            print(f"🐻 [順風保護] 空單遇熊市，繼續持有！RSI:{current_rsi:.1f}，偏離:{deviation*100:.3f}%")
+                            print(f"🐻 [順風保護] 空單遇熊市，繼續持有！RSI:{current_rsi:.1f}，最低:{trailing_lowest:.4f}")
                     elif bull_market:
                         # 空單遇牛市 → 僅在出現實際上漲訊號時才出倉
                         if close_price > current_open and close_price > middle_band:
@@ -599,9 +663,17 @@ async def watch_kline_and_strategy():
                     continue # 平倉後本回合不再開新倉
 
             # 動態大腦：根據大環境切換雙刀流策略 (Regime-Switching)
-            if rsi_extreme:
+            # 猴市才啟用 RSI 煞車，牛/熊市趨勢中 RSI 容易鈍化，不擋單
+            if rsi_extreme and "猴市" in macro_regime:
                 continue
             current_time = time.time()
+            
+            # 【全自動雷達換倉機制】閒置超過 30 分鐘 (1800秒) 且無倉位時，強制登出並觸發雷達
+            global last_action_time
+            if current_time - last_action_time > 1800 and abs(current_pos_qty) < 0.000001:
+                print(f"📡 [雷達換倉] 該幣種已超過 30 分鐘無明顯波動，啟動自動切換機制！")
+                sys.exit(2)
+                
             if current_time - last_buy_time > 30: # 全局共用 30 秒冷卻
                 if "猴市" in macro_regime:
                     # 🐒 猴市 (盤整)：【區間操作 Range Trading】抓天花板與地板
@@ -621,8 +693,8 @@ async def watch_kline_and_strategy():
                             if close_price >= resistance - (range_height * 0.2):
                                 if close_price < current_open:
                                     last_buy_time = current_time
-                                    print(f"⚠️ [雙刀流: 區間] 碰壓力區見跌(紅K)！箱頂:{resistance:.4f}，觸發做空(Short)")
-                                    asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
+                                    print(f"⚠️ [雙刀流: 區間] 碰壓力區見跌(紅K)！箱頂:{resistance:.4f}，但現貨市場無法做空，故忽略訊號。")
+                                    # asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
                             
                             # 接近支撐位 (底部 20% 區域)，且出現綠K (走勢反轉向上)
                             elif close_price <= support + (range_height * 0.2):
@@ -631,20 +703,46 @@ async def watch_kline_and_strategy():
                                     print(f"⚠️ [雙刀流: 區間] 碰支撐區見漲(綠K)！箱底:{support:.4f}，觸發做多(Long)")
                                     asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
                 else:
-                    # 🐂🐻 牛/熊市 (趨勢)：突破進場
+                    # 🐂🐻 牛/熊市 (趨勢)：順勢回調進場，不逆勢
                     recent_highs = [x[2] for x in ohlcv[-30:-1]]
                     recent_lows = [x[3] for x in ohlcv[-30:-1]]
-                    resistance = max(recent_highs) if recent_highs else close_price
-                    support = min(recent_lows) if recent_lows else close_price
-
-                    if "牛市" in macro_regime and close_price > resistance and closes[-2] <= resistance:
-                        last_buy_time = current_time
-                        print(f"🚀 [突破進場] 牛市突破前高！阻力:{resistance:.4f}，觸發做多(Long)")
-                        asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
-                    elif "熊市" in macro_regime and close_price < support and closes[-2] >= support:
-                        last_buy_time = current_time
-                        print(f"🚀 [突破進場] 熊市跌破前低！支撐:{support:.4f}，觸發做空(Short)")
-                        asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
+                    
+                    if recent_highs and recent_lows:
+                        resistance = max(recent_highs)
+                        support = min(recent_lows)
+                        range_height = resistance - support
+                        range_pct = (range_height / support * 100) if support > 0 else 0
+                        
+                        if not hasattr(watch_kline_and_strategy, '_range_log') or time.time() - watch_kline_and_strategy._range_log > 30:
+                            watch_kline_and_strategy._range_log = time.time()
+                            pct_in_range = ((close_price - support) / range_height * 100) if range_height > 0 else 0
+                            print(f"📐 [區間] 幅度={range_pct:.3f}% 支撐={support:.6f} 壓力={resistance:.6f} 當前={close_price:.6f} 位置={pct_in_range:.0f}% 開={opens[-1]:.6f}")
+                        
+                        if range_pct >= 0.1:
+                            current_open = opens[-1]
+                            
+                            # 牛市：做多（回調到支撐區 或 突破壓力追漲）
+                            if "牛市" in macro_regime:
+                                # 回調到支撐區 + 綠K
+                                if close_price <= support + (range_height * 0.2):
+                                    if close_price > current_open:
+                                        last_buy_time = current_time
+                                        print(f"🚀 [牛市回調進場] 回踩支撐見漲(綠K)！支撐:{support:.4f}，觸發做多(Long)")
+                                        asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
+                                # 突破壓力區 + 綠K (追強勢)
+                                elif close_price >= resistance - (range_height * 0.1):
+                                    if close_price > current_open:
+                                        last_buy_time = current_time
+                                        print(f"🚀 [牛市突破追漲] 突破壓力{resistance:.4f}，觸發做多(Long)")
+                                        asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
+                            
+                            # 熊市：只做空（反彈到壓力區）
+                            elif "熊市" in macro_regime:
+                                if close_price >= resistance - (range_height * 0.2):
+                                    if close_price < current_open:
+                                        last_buy_time = current_time
+                                        print(f"🚀 [熊市反彈進場] 反彈壓力見跌(紅K)！壓力:{resistance:.4f}，但現貨市場無法做空，故忽略訊號。")
+                                        # asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
                 
         except Exception as e:
             import traceback
@@ -674,8 +772,8 @@ async def watch_trades_and_order_book():
                         print("👉 [策略動態] 主力強勢吃單，程式啟動順勢追多！")
                         asyncio.create_task(execute_order_and_risk(side='buy', price=trade_price))
                     elif trade_side == 'sell':
-                        print("👉 [策略動態] 主力強勢賣出，程式啟動順勢追空！")
-                        asyncio.create_task(execute_order_and_risk(side='sell', price=trade_price))
+                        print("👉 [策略動態] 主力強勢賣出，但現貨無法追空！")
+                        # asyncio.create_task(execute_order_and_risk(side='sell', price=trade_price))
                         
         except Exception as e:
             print(f"❌ [逐筆成交模組發生波動]: {e}，1秒後自動重連...")
@@ -685,12 +783,125 @@ async def watch_trades_and_order_book():
 # =====================================================================
 # 主程式入口
 # =====================================================================
+
+
+
+last_stable_buy_price = 0.99990
+
+
+last_stable_buy_price = 0.99990
+
+async def stablecoin_scalper_loop():
+    global last_stable_buy_price
+    print("🚀 [穩定幣專屬策略] 啟動純市價跟蹤動態插隊造市策略 (Pure Dynamic, 防自我競價版)...")
+    while True:
+        try:
+            if PAPER_TRADING:
+                print("⚠️ 模擬模式暫不支援穩定幣限價單自動搓合與動態插隊。")
+                await asyncio.sleep(60)
+                continue
+            
+            # 獲取當前最佳買賣價
+            order_book = await exchange.fetch_order_book(symbol, limit=5)
+            best_bid = float(order_book['bids'][0][0]) if order_book['bids'] else 0.99990
+            best_ask = float(order_book['asks'][0][0]) if order_book['asks'] else 1.00000
+
+            # 獲取當前開放訂單
+            open_orders = await exchange.fetch_open_orders(symbol)
+            buy_orders = [o for o in open_orders if o['side'] == 'buy']
+            sell_orders = [o for o in open_orders if o['side'] == 'sell']
+            
+            # 獲取餘額
+            balance = await exchange.fetch_balance()
+            usdc_free = float(balance.get('USDC', {}).get('free', 0.0))
+            usdt_free = float(balance.get('USDT', {}).get('free', 0.0))
+            
+            # 1. 動態買單插隊邏輯
+            needs_new_buy = False
+            target_buy_price = round(best_bid + 0.00001, 5)
+
+            if usdt_free > 5.0:
+                buy_amount = min(usdt_free, default_amount)
+                
+                # 跌市(熊市)防護
+                global macro_regime
+                is_bear_market = "熊市" in macro_regime
+                
+                if buy_amount > 1 and not is_bear_market:
+                    if buy_orders:
+                        current_buy_order = buy_orders[0]
+                        current_buy_price = float(current_buy_order['price'])
+                        # 防自我競價：如果我們的買單已經是全場最高（或平手），保持不動！
+                        if current_buy_price >= best_bid:
+                            needs_new_buy = False
+                        else:
+                            needs_new_buy = True
+                            print(f"🔄 [買單調整] 被人超過了！(他:{best_bid:.5f} 我:{current_buy_price:.5f})，執行撤單...")
+                            try:
+                                await exchange.cancel_order(current_buy_order['id'], symbol)
+                                await asyncio.sleep(0.5)
+                            except Exception as e:
+                                print(f"撤單失敗: {e}")
+                    else:
+                        needs_new_buy = True
+                elif is_bear_market and buy_amount > 1:
+                    print(f"🛑 [環境防護] 目前為 {macro_regime}，暫停掛買單。")
+                        
+                if needs_new_buy:
+                    print(f"🛒 [穩定幣動態掛單] 搶佔第一！掛買單: {buy_amount:.2f} USDC @ {target_buy_price:.5f}")
+                    try:
+                        await exchange.create_limit_buy_order(symbol, buy_amount / target_buy_price, target_buy_price)
+                        last_stable_buy_price = target_buy_price
+                    except Exception as e:
+                        print(f"下買單失敗: {e}")
+
+            # 2. 動態賣單插隊邏輯
+            needs_new_sell = False
+            target_sell_price = round(best_ask - 0.00001, 5)
+            # 保本防呆：確保賣出價比最後買入價高至少 0.00001
+            minimum_sell_price = round(last_stable_buy_price + 0.00001, 5)
+            
+            if target_sell_price < minimum_sell_price:
+                target_sell_price = minimum_sell_price
+                
+            if usdc_free > 5.0:
+                sell_amount = min(usdc_free, default_amount)
+                if sell_amount > 1:
+                    if sell_orders:
+                        current_sell_order = sell_orders[0]
+                        current_sell_price = float(current_sell_order['price'])
+                        # 防自我競價：如果我們的賣價已經是全場最低（或平手），保持不動！
+                        if current_sell_price <= best_ask:
+                            needs_new_sell = False
+                        else:
+                            needs_new_sell = True
+                            print(f"🔄 [賣單調整] 被人搶低了！(他:{best_ask:.5f} 我:{current_sell_price:.5f})，執行撤單...")
+                            try:
+                                await exchange.cancel_order(current_sell_order['id'], symbol)
+                                await asyncio.sleep(0.5)
+                            except Exception as e:
+                                print(f"撤單失敗: {e}")
+                    else:
+                        needs_new_sell = True
+                            
+                    if needs_new_sell:
+                        print(f"💰 [穩定幣動態掛單] 搶佔第一！掛賣單: {sell_amount:.2f} USDC @ {target_sell_price:.5f} (成本: {last_stable_buy_price:.5f})")
+                        try:
+                            await exchange.create_limit_sell_order(symbol, sell_amount, target_sell_price)
+                        except Exception as e:
+                            print(f"下賣單失敗: {e}")
+                        
+        except Exception as e:
+            print(f"❌ [穩定幣動態策略錯誤]: {e}")
+        
+        # 1 秒極速造市模式
+        await asyncio.sleep(1)
+
 async def main():
     try:
         if not PAPER_TRADING:
-            await exchange.set_margin_mode('isolated', symbol)
-            await exchange.set_leverage(10, symbol)
-            print(f"🔧 [系統初始化] 實盤模式: 已設定為逐倉模式與 10 倍槓桿")
+            # 現貨不設定逐倉與槓桿
+            print(f"🔧 [系統初始化] 實盤模式: 現貨交易啟動")
     except Exception as e:
         print(f"⚠️ [安全保護警告] 設定逐倉/槓桿失敗，可能該幣種不支援或已有持倉: {e}")
             
@@ -701,15 +912,20 @@ async def main():
     print(f"@@REGIME@@{macro_regime}") # 初始化發送狀態
     print(f"@@AMOUNT@@{default_amount}") # 初始化發送金額
     # 同時併發運行兩大行情模組與全局監控
-    await asyncio.gather(
-        check_account_safety(),
-        update_position_info(),
-        watch_kline_and_strategy(),
-        watch_trades_and_order_book(),
-        monitor_macro_trend(),
-        monitor_position_tp_sl()
-    )
-
+    if symbol == 'USDC/USDT':
+        await asyncio.gather(
+            update_position_info(),
+            stablecoin_scalper_loop()
+        )
+    else:
+        await asyncio.gather(
+            check_account_safety(),
+            update_position_info(),
+            watch_kline_and_strategy(),
+            watch_trades_and_order_book(),
+            monitor_macro_trend(),
+            monitor_position_tp_sl()
+        )
 if __name__ == '__main__':
     try:
         asyncio.run(main())

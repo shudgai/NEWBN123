@@ -389,10 +389,13 @@
                         {{ (bot.balance_quote - 150) > 0 ? '+' : '' }}{{ formatCurrencyVal(bot.balance_quote - 150) }} USDT
                     </div>
                 </div>
-                <div class="info-card">
+                <div class="balance-box ms-auto text-end" style="cursor: pointer;" @click="toggleCurrency" title="點擊切換顯示幣別">
                     <div class="info-title">帳戶 <span id="quoteAssetLabel">{{ getQuoteAsset() }}</span> 餘額</div>
                     <div class="info-val mono">{{ formatQuoteBalance() }}</div>
                 </div>
+                <button class="btn btn-primary fw-bold px-4 shadow-sm" @click="autoSnipeBestCoin" :disabled="isPlacingOrder">
+                    {{ isPlacingOrder ? '🔍 掃描中...' : '🚀 一鍵智能狙擊最飆幣' }}
+                </button>
             </div>
 
             <!-- Trade amount -->
@@ -451,6 +454,7 @@
             <!-- Manual orders -->
             <div class="order-grid">
                 <button class="btn-buy" @click="placeMarketBuy" :disabled="isPlacingOrder">🟢 手動做多(Long) 15 USDT</button>
+                <button class="btn-danger" style="padding:6px 10px;border:none;border-radius:6px;color:#fff;cursor:pointer;" @click="placeMarketShort" :disabled="isPlacingOrder">🔴 手動做空(Short) 15 USDT</button>
                 <button class="btn-sell" @click="placeMarketSell" :disabled="isPlacingOrder">🔴 一鍵平倉(Close Position)</button>
             </div>
 
@@ -530,9 +534,16 @@ createApp({
             { symbol: 'BTCUSDT', name: 'BTC', label: '比特幣', price: 0, prevPrice: 0, priceClass: '' },
             { symbol: 'ETHUSDT', name: 'ETH', label: '乙太幣', price: 0, prevPrice: 0, priceClass: '' },
             { symbol: 'BNBUSDT', name: 'BNB', label: '幣安幣', price: 0, prevPrice: 0, priceClass: '' },
-            { symbol: 'SOLBNB', name: 'SOL', label: '索拉納/BNB', price: 0, prevPrice: 0, priceClass: '' },
             { symbol: 'SOLUSDT', name: 'SOL', label: '索拉納', price: 0, prevPrice: 0, priceClass: '' },
             { symbol: 'SUIUSDT', name: 'SUI', label: 'SUI', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: '1000SHIBUSDT', name: '1000SHIB', label: '迷因幣', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'ORDIUSDT', name: 'ORDI', label: '銘文', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'AVAXUSDT', name: 'AVAX', label: 'Layer 1', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'OPUSDT', name: 'OP', label: 'Layer 2', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'HYPEUSDT', name: 'HYPE', label: '生態', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'LABUSDT', name: 'LAB', label: '生態', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'ZECUSDT', name: 'ZEC', label: '隱私', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'HUMAUSDT', name: 'HUMA', label: 'DeFi', price: 0, prevPrice: 0, priceClass: '' },
             { symbol: 'USDCUSDT', name: 'USDC', label: 'USD幣', price: 0, prevPrice: 0, priceClass: '' },
             { symbol: 'XRPUSDT', name: 'XRP', label: '瑞波幣', price: 0, prevPrice: 0, priceClass: '' },
             { symbol: '1000PEPEUSDT', name: 'PEPE', label: '佩佩蛙', price: 0, prevPrice: 0, priceClass: '' },
@@ -822,6 +833,51 @@ createApp({
             } catch(e) {}
         };
 
+        const autoSnipeBestCoin = async () => {
+            if (isPlacingOrder.value) return;
+            isPlacingOrder.value = true;
+            addLog("⚡ 智能狙擊：正在掃描全市場波動最大的幣種...", "warning");
+            try {
+                const res = await fetch(`${API_BASE}/radar/scan`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.status === 'success') {
+                        if (data.cooldown) {
+                            addLog(`⏳ 冷卻中，請等 ${data.cooldown} 秒後再試`, "warning");
+                        } else if (data.best_symbol) {
+                            if (data.best_symbol === activeSymbol.value) {
+                                addLog(`✅ 當前 ${data.best_symbol} 仍是最飆幣種，無需切換`, "success");
+                            } else {
+                                addLog(`🎯 狙擊成功！已切換至最飆幣種：${data.best_symbol}`, "success");
+                                activeSymbol.value = data.best_symbol;
+                                localStorage.setItem('activeSymbol', data.best_symbol);
+                                initChart();
+                                if (ws) { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; ws.close(); }
+                                initWebSocket();
+                            }
+                        } else {
+                            addLog("⚠️ 掃描完成但無合適目標", "warning");
+                        }
+                    } else {
+                        addLog(`⚠️ 掃描失敗: ${data.detail || data.msg}`, "warning");
+                    }
+                } else {
+                    addLog(`❌ 掃描請求失敗 (${res.status})`, "danger");
+                }
+            } catch (e) {
+                addLog(`❌ 掃描發生錯誤: ${e.message}`, "danger");
+            } finally {
+                isPlacingOrder.value = false;
+            }
+        };
+
+        const cancelAllOrders = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/trades/${activeSymbol.value}`);
+                if (res.ok) trades.value = await res.json();
+            } catch(e) {}
+        };
+
         const toggleBot = async () => {
             try {
                 const res = await fetch(`${API_BASE}/bot-status/toggle`, { method: 'POST' });
@@ -842,6 +898,21 @@ createApp({
                     setTimeout(() => { fetchBotStatus(); fetchPosition(); fetchTrades(); }, 1200);
                 } else throw new Error(data.detail);
             } catch(e) { addLog(`❌ 買入失敗: ${e.message}`, 'danger'); }
+            finally { isPlacingOrder.value = false; }
+        };
+
+        const placeMarketShort = async () => {
+            const coin = activeCoin.value; if (!coin) return;
+            isPlacingOrder.value = true;
+            addLog(`🛒 做空 15 USDT 的 ${coin.name}...`);
+            try {
+                const res = await fetch(`${API_BASE}/order/market-short/${coin.symbol}?amount=15`, { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    addLog(`✅ 做空成功! ID:${data.order.orderId} 數量:${parseFloat(data.order.executedQty).toFixed(5)}`, 'success');
+                    setTimeout(() => { fetchBotStatus(); fetchPosition(); fetchTrades(); }, 1200);
+                } else throw new Error(data.detail);
+            } catch(e) { addLog(`❌ 做空失敗: ${e.message}`, 'danger'); }
             finally { isPlacingOrder.value = false; }
         };
 
@@ -898,7 +969,7 @@ createApp({
 
             addLog('建立幣安行情 WebSocket...');
             const streams = coins.value.map(c => `${c.symbol.toLowerCase()}@ticker`).join('/') + '/' + coins.value.map(c => `${c.symbol.toLowerCase()}@trade`).join('/');
-            ws = new WebSocket(`wss://stream.binance.com/stream?streams=${streams}`);
+            ws = new WebSocket(`wss://fstream.binance.com/stream?streams=${streams}`);
 
             ws.onopen = () => { addLog('⚡ 幣安 WebSocket 連線成功！'); };
 
@@ -1017,8 +1088,7 @@ createApp({
             toggleCurrency, setActiveCoin,
             formatMiniPrice, formatCurrencyVal, formatTradeTime, formatLiveTradeTime, getActiveCoinLabel, getQuoteAsset, formatQuoteBalance,
             bot, position, trades, liveTrades, error,
-            toggleBot, isPlacingOrder, placeMarketBuy, placeMarketSell,
-            logs, consoleRef, clearLogs,
+            toggleBot, isPlacingOrder, placeMarketBuy, placeMarketShort, placeMarketSell, cancelAllOrders, autoSnipeBestCoin, logs, consoleRef, clearLogs,
             tempTradeAmount, updateTradeAmount,
             selectedTf, timeframes, changeTf,
             volumeBars, latestVolumeStr, volumeUnit,

@@ -395,30 +395,31 @@ async def monitor_position_tp_sl():
             ticker = await exchange.fetch_ticker(symbol)
             current_p = ticker['last']
 
-            # TP: 猴市 0.6%, 牛熊市 0.8%; SL: 固定 3%
-            tp_swing_pct = 0.006 if "猴市" in macro_regime else SWING_TP_PCT
+            # TP: 只在猴市用固定止盈，牛熊市靠動態反轉訊號出場；SL: 固定 3%
+            use_tp = "猴市" in macro_regime
+            tp_swing_pct = 0.006 if use_tp else None
             sl_pct = 0.03
 
             if pos_qty > 0:
-                tp_swing = pos_avg * (1 + tp_swing_pct)
                 sl = pos_avg * (1 - sl_pct)
-
-                if current_p >= tp_swing:
-                    print(f"🎯 [波段止盈] 多單均價 {pos_avg:.4f}，現價 {current_p:.4f} >= {tp_swing:.4f} (+{tp_swing_pct*100:.1f}%)，全平！")
-                    await close_entire_position('sell', abs(pos_qty), current_p, pos_avg)
-                elif current_p <= sl:
+                if current_p <= sl:
                     print(f"🛑 [止損] 多單均價 {pos_avg:.4f}，現價 {current_p:.4f} <= {sl:.4f} (-{sl_pct*100:.1f}%)，全平！")
                     await close_entire_position('sell', abs(pos_qty), current_p, pos_avg)
+                elif use_tp:
+                    tp_swing = pos_avg * (1 + tp_swing_pct)
+                    if current_p >= tp_swing:
+                        print(f"🎯 [波段止盈] 多單均價 {pos_avg:.4f}，現價 {current_p:.4f} >= {tp_swing:.4f} (+{tp_swing_pct*100:.1f}%)，全平！")
+                        await close_entire_position('sell', abs(pos_qty), current_p, pos_avg)
             else:
-                tp_swing = pos_avg * (1 - tp_swing_pct)
                 sl = pos_avg * (1 + sl_pct)
-
-                if current_p <= tp_swing:
-                    print(f"🎯 [波段止盈] 空單均價 {pos_avg:.4f}，現價 {current_p:.4f} <= {tp_swing:.4f} (-{tp_swing_pct*100:.1f}%)，全平！")
-                    await close_entire_position('buy', abs(pos_qty), current_p, pos_avg)
-                elif current_p >= sl:
+                if current_p >= sl:
                     print(f"🛑 [止損] 空單均價 {pos_avg:.4f}，現價 {current_p:.4f} >= {sl:.4f} (+{sl_pct*100:.1f}%)，全平！")
                     await close_entire_position('buy', abs(pos_qty), current_p, pos_avg)
+                elif use_tp:
+                    tp_swing = pos_avg * (1 - tp_swing_pct)
+                    if current_p <= tp_swing:
+                        print(f"🎯 [波段止盈] 空單均價 {pos_avg:.4f}，現價 {current_p:.4f} <= {tp_swing:.4f} (-{tp_swing_pct*100:.1f}%)，全平！")
+                        await close_entire_position('buy', abs(pos_qty), current_p, pos_avg)
 
         except Exception as e:
             pass

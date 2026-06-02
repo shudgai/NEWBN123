@@ -16,8 +16,11 @@ load_dotenv()
 # =====================================================================
 exchange = ccxtpro.binance({
     'apiKey': os.getenv('BINANCE_API_KEY') or None,     # 從 .env 讀取 API Key
-    'secret': os.getenv('BINANCE_API_SECRET') or None,   # 從 .env 讀取 Secret Key
+    'secret': os.getenv('BINANCE_API_SECRET') or None,   # .env 讀取 Secret Key
     'enableRateLimit': True,
+    'options': {
+        'defaultType': 'future',  # 強制使用合約交易
+    },
 })
 USE_TESTNET = os.getenv("USE_TESTNET", "True").lower() in ("true", "1", "yes")
 PAPER_TRADING = not bool(os.getenv('BINANCE_API_KEY'))
@@ -96,9 +99,41 @@ async def get_current_price():
     ticker = await exchange.fetch_ticker(symbol)
     return float(ticker['last'])
 
+# 合約精度資訊快取 (LOT_SIZE stepSize / PRICE_FILTER tickSize)
+_contract_precision = None
+
+async def get_contract_precision():
+    global _contract_precision
+    if _contract_precision is not None:
+        return _contract_precision
+    try:
+        markets = await exchange.load_markets()
+        market = markets.get(symbol)
+        if market:
+            info = market.get('info', {})
+            filters = {f['filterType']: f for f in info.get('filters', [])}
+            ls = filters.get('LOT_SIZE', {})
+            pf = filters.get('PRICE_FILTER', {})
+            _contract_precision = {
+                'step_size': float(ls.get('stepSize', 0.001)),
+                'min_qty': float(ls.get('minQty', 0.001)),
+                'tick_size': float(pf.get('tickSize', 0.001)),
+            }
+            return _contract_precision
+    except Exception as e:
+        print(f"⚠️ 讀取合約精度失敗: {e}")
+    return {'step_size': 0.001, 'min_qty': 0.001, 'tick_size': 0.001}
+
+def round_step(qty, step_size):
+    """將數量取整到交易所要求的 stepSize"""
+    precision = int(round(-np.log10(step_size)))
+    return round(round(qty / step_size) * step_size, precision)
+
 async def get_base_amount(amt_usd):
     price = await get_current_price()
-    return amt_usd / price
+    raw_qty = amt_usd / price
+    prec = await get_contract_precision()
+    return round_step(raw_qty, prec['step_size'])
 
 simulated_base_amt = 0.0
 latest_ws_price = 0.0
@@ -122,7 +157,7 @@ trailing_lowest = float('inf')
 LEVERAGE = 5.0
 current_1h_deviation = 0.0
 
-def update_dynamic_leverage():
+async def update_dynamic_leverage():
     global LEVERAGE, current_1h_deviation
     abs_dev = abs(current_1h_deviation)
     old = LEVERAGE
@@ -134,6 +169,12 @@ def update_dynamic_leverage():
         LEVERAGE = 10
     if LEVERAGE != old:
         print(f"⚙️ [動態槓桿] 偏離度={current_1h_deviation*100:.1f}% → 調整為 {LEVERAGE}x")
+        if not PAPER_TRADING:
+            try:
+                await exchange.set_leverage(int(LEVERAGE), symbol)
+                print(f"   ✅ 已同步更新交易所槓桿為 {int(LEVERAGE)}x")
+            except Exception as e:
+                print(f"   ⚠️ 同步槓桿失敗: {e}")
 
 async def initialize_simulated_position():
     global simulated_base_amt, position_open_time
@@ -245,11 +286,14 @@ async def execute_order_and_risk(side, price):
                 position_open_time = time.time()
                 update_paper_state(SYMBOL_KEY, side, avg_price, actual_received_amt)
             else:
+                prec = await get_contract_precision()
+                qty_str = round_step(base_amt, prec['step_size'])
                 open_order = await exchange.create_order(
                     symbol=symbol,
                     type='market',
                     side=side,
-                    amount=base_amt
+                    amount=qty_str,
+                    params={'marginMode': 'isolated'}
                 )
                 avg_price = open_order.get('average') or price
                 print(f"✅ [下單模組] {direction_str} 開倉成功！實際成交均價: {avg_price} | 單號: {open_order['id']}")
@@ -299,12 +343,14 @@ async def close_entire_position(close_side, actual_close_amt, current_p, pos_avg
     else:
         close_action = "賣出平多" if close_side == 'sell' else "買入平空"
         try:
+            prec = await get_contract_precision()
+            qty_str = round_step(actual_close_amt, prec['step_size'])
             close_order = await exchange.create_order(
                 symbol=symbol,
                 type='market',
                 side=close_side,
-                amount=actual_close_amt,
-                params={'reduceOnly': True}
+                amount=qty_str,
+                params={'reduceOnly': True, 'marginMode': 'isolated'}
             )
             print(f"✅ [全局平倉成功] 已成功{close_action}！數量: {actual_close_amt:.6f}")
             # 更新活動時間
@@ -425,7 +471,7 @@ async def monitor_macro_trend():
                     print_dev = coin_deviation
                 
                 current_1h_deviation = print_dev
-                update_dynamic_leverage()
+                await update_dynamic_leverage()
                 
                 if old_regime != macro_regime or abs(old_dev - current_1h_deviation) > 0.03:
                     amount = 50.0
@@ -900,8 +946,18 @@ async def stablecoin_scalper_loop():
 async def main():
     try:
         if not PAPER_TRADING:
-            # 現貨不設定逐倉與槓桿
-            print(f"🔧 [系統初始化] 實盤模式: 現貨交易啟動")
+            # 設定合約槓桿與保證金模式 (逐倉)
+            try:
+                await exchange.set_margin_mode('isolated', symbol)
+                print(f"🔧 [系統初始化] 設定逐倉模式成功")
+            except Exception as e:
+                print(f"⚠️ [設定逐倉] {e}")
+            try:
+                await exchange.set_leverage(int(LEVERAGE), symbol)
+                print(f"🔧 [系統初始化] 設定槓桿 {int(LEVERAGE)}x 成功")
+            except Exception as e:
+                print(f"⚠️ [設定槓桿] {e}")
+            print(f"🔧 [系統初始化] 實盤模式: 合約交易啟動")
     except Exception as e:
         print(f"⚠️ [安全保護警告] 設定逐倉/槓桿失敗，可能該幣種不支援或已有持倉: {e}")
             

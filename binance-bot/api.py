@@ -22,6 +22,30 @@ load_dotenv()
 
 app = FastAPI(title="Binance Bot API Backend")
 
+# 快取合約精度
+_contract_precisions = {}
+
+def get_contract_step(symbol):
+    """取得 Binance 合約 LOT_SIZE stepSize"""
+    if symbol in _contract_precisions:
+        return _contract_precisions[symbol]
+    try:
+        info = client.futures_exchange_info()
+        for s in info.get('symbols', []):
+            if s['symbol'] == symbol:
+                for f in s.get('filters', []):
+                    if f['filterType'] == 'LOT_SIZE':
+                        step = float(f['stepSize'])
+                        _contract_precisions[symbol] = step
+                        return step
+    except Exception as e:
+        print(f"⚠️ 讀取 {symbol} LOT_SIZE 失敗: {e}")
+    return 0.001  # 預設
+
+def round_step(qty, step):
+    precision = int(round(-__import__('math').log10(step)))
+    return round(round(qty / step) * step, precision)
+
 # 設定 CORS，允許 Vue 前端跨網域存取
 app.add_middleware(
     CORSMiddleware,
@@ -361,14 +385,8 @@ def market_buy(symbol: str, amount: float = 150.0):
         ticker = client.futures_symbol_ticker(symbol=symbol_upper)
         price = float(ticker['price'])
         qty = amount / price
-        
-        # 簡單計算精確度
-        if "BTC" in symbol_upper:
-            qty_str = f"{qty:.4f}"
-        elif "ETH" in symbol_upper:
-            qty_str = f"{qty:.3f}"
-        else:
-            qty_str = f"{qty:.1f}"
+        step = get_contract_step(symbol_upper)
+        qty_str = str(round_step(qty, step))
 
         if symbol_upper == 'USDCUSDT':
             order = client.futures_create_order(
@@ -437,13 +455,8 @@ def market_short(symbol: str, amount: float = 150.0):
         price = float(ticker['price'])
         qty = amount / price
         
-        # 簡單計算精確度
-        if "BTC" in symbol_upper:
-            qty_str = f"{qty:.4f}"
-        elif "ETH" in symbol_upper:
-            qty_str = f"{qty:.3f}"
-        else:
-            qty_str = f"{qty:.1f}"
+        step = get_contract_step(symbol_upper)
+        qty_str = str(round_step(qty, step))
 
         order = client.futures_create_order(
             symbol=symbol_upper,
@@ -532,6 +545,8 @@ def market_sell(symbol: str):
             raise HTTPException(status_code=400, detail="當前無合約倉位可平倉")
 
         side = Client.SIDE_SELL if qty > 0 else Client.SIDE_BUY
+        step = get_contract_step(symbol_upper)
+        qty_str = str(round_step(abs(qty), step))
         
         if symbol_upper == 'USDCUSDT':
             order = client.futures_create_order(
@@ -540,7 +555,7 @@ def market_sell(symbol: str):
                 type=Client.ORDER_TYPE_LIMIT,
                 timeInForce='GTC',
                 price='1.0000',
-                quantity=abs(qty)
+                quantity=qty_str
             )
         else:
             order = client.futures_create_order(

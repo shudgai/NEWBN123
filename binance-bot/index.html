@@ -863,10 +863,6 @@ createApp({
         };
 
         const setActiveCoin = async (symbol) => {
-            if (bot.value.is_running) {
-                addLog('⚠️ 請先停止機器人，再切換幣種', 'warning');
-                return;
-            }
             activeSymbol.value = symbol;
             localStorage.setItem('activeSymbol', symbol);
             addLog(`切換監聽: ${coins.value.find(c => c.symbol === symbol)?.name}`);

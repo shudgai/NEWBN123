@@ -642,12 +642,22 @@ async def watch_kline_and_strategy():
                 watch_kline_and_strategy._status_log = time.time()
                 print(f"📊 [狀態] RSI={current_rsi:.1f} 偏離={deviation*100:.2f}% 持倉={current_pos_qty:.4f}  regime={macro_regime}")
             
-            # 🔥 高溫煞車系統：RSI 極端時禁止開新倉，但仍可平倉
+            # 🔥 新增近期 RSI 歷史紀錄，用於右側確認 (抄底/摸頂)
+            if not hasattr(watch_kline_and_strategy, 'recent_rsis'):
+                watch_kline_and_strategy.recent_rsis = []
+            watch_kline_and_strategy.recent_rsis.append(current_rsi)
+            if len(watch_kline_and_strategy.recent_rsis) > 180: # 紀錄過去 3 分鐘 (180秒) 的變化
+                watch_kline_and_strategy.recent_rsis.pop(0)
+            
+            min_recent_rsi = min(watch_kline_and_strategy.recent_rsis)
+            max_recent_rsi = max(watch_kline_and_strategy.recent_rsis)
+            
+            # 🔥 高溫煞車系統：極端 RSI 時避免左側直接進場，改為右側確認
             rsi_extreme = current_rsi > 75.0 or current_rsi < 20.0
             if rsi_extreme:
                 if not hasattr(watch_kline_and_strategy, '_rsi_warned') or time.time() - watch_kline_and_strategy._rsi_warned > 60:
                     watch_kline_and_strategy._rsi_warned = time.time()
-                    print(f"🌡️ [RSI 防護] RSI={current_rsi:.1f}，暫停開新倉 (仍可平倉)")
+                    print(f"🌡️ [RSI 防護] RSI={current_rsi:.1f}，左側高溫區，等待右側確認...")
 
             # 🚀 [動態轉折平倉邏輯]
             if abs(current_pos_qty) > 0.000001:
@@ -693,25 +703,31 @@ async def watch_kline_and_strategy():
 
                 # === 統一移動停利 ===
                 if not close_signal:
+                    # 盤整期或逆勢單提早停利門檻 (0.2%)
+                    is_monkey_or_counter = "猴市" in macro_regime or \
+                                           (is_long and "熊市" in macro_regime) or \
+                                           (not is_long and "牛市" in macro_regime)
+                    tp_threshold = 0.002 if is_monkey_or_counter else 0.005
+                    
                     if is_long:
                         if close_price > trailing_highest:
                             trailing_highest = close_price
                         highest_profit_pct = (trailing_highest - current_pos_avg) / current_pos_avg
-                        if highest_profit_pct >= 0.005:
-                            stop_line = max(0.005, highest_profit_pct - 0.005)
+                        if highest_profit_pct >= tp_threshold:
+                            stop_line = max(tp_threshold, highest_profit_pct - 0.005)
                             if profit_pct <= stop_line:
                                 close_signal = True
-                                close_reason = f"🛡️ 統一階梯停利：最高 {highest_profit_pct*100:.2f}% 回落至 {stop_line*100:.2f}%"
+                                close_reason = f"🛡️ 階梯停利 (門檻 {tp_threshold*100:.1f}%)：最高 {highest_profit_pct*100:.2f}% 回落至 {stop_line*100:.2f}%"
                                 reset_trailing_stops()
                     else:
                         if close_price < trailing_lowest:
                             trailing_lowest = close_price
                         highest_profit_pct = (current_pos_avg - trailing_lowest) / current_pos_avg
-                        if highest_profit_pct >= 0.005:
-                            stop_line = max(0.005, highest_profit_pct - 0.005)
+                        if highest_profit_pct >= tp_threshold:
+                            stop_line = max(tp_threshold, highest_profit_pct - 0.005)
                             if profit_pct <= stop_line:
                                 close_signal = True
-                                close_reason = f"🛡️ 統一階梯停利：最高 {highest_profit_pct*100:.2f}% 回落至 {stop_line*100:.2f}%"
+                                close_reason = f"🛡️ 階梯停利 (門檻 {tp_threshold*100:.1f}%)：最高 {highest_profit_pct*100:.2f}% 回落至 {stop_line*100:.2f}%"
                                 reset_trailing_stops()
                                 
                 if close_signal:
@@ -746,9 +762,7 @@ async def watch_kline_and_strategy():
                     continue # 結束本回合，不再執行後續開倉判斷
 
             # 動態大腦：根據大環境切換雙刀流策略 (Regime-Switching)
-            # 猴市才啟用 RSI 煞車，牛/熊市趨勢中 RSI 容易鈍化，不擋單
-            if rsi_extreme and "猴市" in macro_regime:
-                continue
+            # 方案 B 取消直接擋單，改由右側確認決定
             current_time = time.time()
             
             # 【全自動雷達換倉機制】閒置超過 30 分鐘 (1800秒) 且無倉位時，強制登出並觸發雷達
@@ -780,24 +794,20 @@ async def watch_kline_and_strategy():
                         
                         # 1. 接近或突破壓力位 (天花板) -> 摸頂做空
                         if close_price >= resistance - (range_height * 0.40):
-                            if current_rsi < 30:
-                                pass # 不在極度超賣時做空
-                            elif "牛市" in macro_regime:
-                                pass # [方案A] 牛市絕對禁止逆勢做空
-                            else:
+                            # 右側確認：曾經頂破 70，現在回落到 60 以下才做空
+                            if max_recent_rsi > 70 and current_rsi <= 60:
                                 last_buy_time = current_time
-                                print(f"⚠️ [全天候: 摸頂] 衝到天花板！箱頂:{resistance:.4f} (RSI={current_rsi:.1f})，觸發做空(Short)")
+                                print(f"⚠️ [全天候: 摸頂] 右側確認！箱頂:{resistance:.4f} (最高RSI={max_recent_rsi:.1f} 回落至={current_rsi:.1f})，觸發做空(Short)")
                                 asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
+                            elif "牛市" in macro_regime:
+                                pass # 牛市仍稍微防護，或交由右側確認處理，這裡已由右側確認取代，所以暫不限制
                             
                         # 2. 接近或跌破支撐位 (地板) -> 抄底做多
                         elif close_price <= support + (range_height * 0.40):
-                            if current_rsi > 70:
-                                pass # 不在極度超買時做多
-                            elif "熊市" in macro_regime:
-                                pass # [方案A] 熊市絕對禁止逆勢做多 (抄底)
-                            else:
+                            # 右側確認：曾經跌破 30，現在反彈到 40 以上才做多
+                            if min_recent_rsi < 30 and current_rsi >= 40:
                                 last_buy_time = current_time
-                                print(f"⚠️ [全天候: 抄底] 跌到地板！箱底:{support:.4f} (RSI={current_rsi:.1f})，觸發做多(Long)")
+                                print(f"⚠️ [全天候: 抄底] 右側確認！箱底:{support:.4f} (最低RSI={min_recent_rsi:.1f} 反彈至={current_rsi:.1f})，觸發做多(Long)")
                                 asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
                 
         except Exception as e:

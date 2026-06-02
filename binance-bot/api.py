@@ -362,7 +362,12 @@ def get_logs():
 def set_bot_symbol(symbol: str):
     """設定當前機器人自動交易的幣種"""
     global bot_process
+    old_symbol = bot_status.get("active_symbol", "")
     bot_status["active_symbol"] = symbol.upper()
+    
+    # 防止重複觸發 (雷達已切換過)
+    if old_symbol == symbol.upper():
+        return {"status": "success", "active_symbol": bot_status["active_symbol"]}
     _, quote_asset = parse_symbol(symbol)
     amt = bot_status.get("trade_amount", 0.02)
     bot_status["strategy"] = f"MA Deviation ({amt} {quote_asset})"

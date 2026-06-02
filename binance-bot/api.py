@@ -113,11 +113,11 @@ def add_system_log(text: str, level: str = "info"):
 bot_status = {
     "is_running": False,
     "strategy": "Sniper Mode",
-    "balance_quote": 0.0,
+    "balance_quote": 150.0,
     "active_orders": 0,
     "active_symbol": "SOLUSDT",
     "regime": "猴市 (區間震盪)",
-    "trade_amount": 50.0,
+    "trade_amount": 150.0,
 }
 
 bot_process = None
@@ -151,27 +151,48 @@ def auto_radar_switch(force_start=False):
         targets = [
             'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'SUIUSDT', 'XRPUSDT', 
             '1000PEPEUSDT', 'DOGEUSDT', 'WIFUSDT', '1000SHIBUSDT', 'ORDIUSDT', 
-            'AVAXUSDT', 'OPUSDT', 'HYPEUSDT', 'LABUSDT', 'ZECUSDT'
+            'AVAXUSDT', 'OPUSDT', 'HYPEUSDT', 'LABUSDT', 'ZECUSDT',
+            'MRVLUSDT', 'NVDAUSDT', 'HOMEUSDT', 'WLDUSDT', 'HUSDT', 'NEARUSDT', 'XLMUSDT'
         ]
         elapsed = time.time() - last_api_call
         if elapsed < API_RATE_LIMIT:
             time.sleep(API_RATE_LIMIT - elapsed)
         last_api_call = time.time()
-        tickers = client.futures_ticker()
+        import concurrent.futures
+
+        def get_1h_volatility(sym):
+            try:
+                # 抓取最近 1 小時 (4根15分K)
+                klines = client.futures_klines(symbol=sym, interval='15m', limit=4)
+                if not klines:
+                    return sym, 0
+                highs = [float(k[2]) for k in klines]
+                lows = [float(k[3]) for k in klines]
+                vols = [float(k[7]) for k in klines] # 1小時的總 USDT 交易量
+                
+                h = max(highs)
+                l = min(lows)
+                q_vol = sum(vols)
+                
+                # 至少要有 100 萬美金的 1 小時交易量，才算有熱度
+                if l > 0 and q_vol > 1_000_000:
+                    volatility = ((h - l) / l) * 100
+                    return sym, volatility
+            except:
+                pass
+            return sym, 0
+
         best_symbol = None
         max_vol = -1.0
         current_sym = bot_status.get("active_symbol")
         
-        for t in tickers:
-            sym = t['symbol']
-            if sym in targets:
-                try:
-                    price_change = abs(float(t.get('priceChangePercent', 0)))
-                    if price_change > max_vol:
-                        max_vol = price_change
-                        best_symbol = sym
-                except:
-                    pass
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            results = executor.map(get_1h_volatility, targets)
+            
+        for sym, vol in results:
+            if vol > max_vol:
+                max_vol = vol
+                best_symbol = sym
 
         if not best_symbol:
             add_system_log("⚠️ [雷達掃描] 所有目標幣種皆無數據", "warning")

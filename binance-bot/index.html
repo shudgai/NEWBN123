@@ -384,6 +384,10 @@
                     <div class="info-val" style="font-size:14px;">{{ bot.strategy }}</div>
                 </div>
                 <div class="info-card">
+                    <div class="info-title">動態槓桿</div>
+                    <div class="info-val" style="font-size:15px; color: #f39c12;">{{ bot.leverage || 20 }}x</div>
+                </div>
+                <div class="info-card">
                     <div class="info-title">總已實現利潤</div>
                     <div :class="['info-val mono', (bot.balance_quote - 150) > 0 ? 'up' : (bot.balance_quote - 150) < 0 ? 'down' : '']" style="font-size:15px;">
                         {{ (bot.balance_quote - 150) > 0 ? '+' : '' }}{{ formatCurrencyVal(bot.balance_quote - 150) }} USDT
@@ -458,6 +462,40 @@
                 <button class="btn-sell" @click="placeMarketSell" :disabled="isPlacingOrder">🔴 一鍵平倉(Close Position)</button>
             </div>
 
+        </div>
+
+        <!-- ══ FAR RIGHT PANEL ══════════════════════════════ -->
+        <div class="right-panel">
+
+            <!-- Trade history (Removed) -->
+
+            <!-- System console -->
+            <div class="log-console-wrap">
+                <div class="log-header">
+                    <span class="log-header-title">💻 系統紀錄</span>
+                    <span class="log-clear" @click="clearLogs">清除</span>
+                </div>
+                <div class="log-console" ref="consoleRef">
+                    <div v-for="(log, idx) in logs" :key="idx">
+                        <span class="log-time">[{{ log.time }}]</span>
+                        <span :class="log.levelClass">{{ log.text }}</span>
+                    </div>
+                </div>
+            </div>
+
+
+            
+            <div class="card" style="margin-top: 10px; display: flex; flex-direction: row; justify-content: space-between; padding: 10px 14px;">
+                <div>
+                    <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">今日最高 (24h High)</div>
+                    <div style="font-family: 'JetBrains Mono'; font-size: 14px; font-weight: 700; color: var(--success);">{{ formatMiniPrice(high24h) }}</div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">今日最低 (24h Low)</div>
+                    <div style="font-family: 'JetBrains Mono'; font-size: 14px; font-weight: 700; color: var(--danger);">{{ formatMiniPrice(low24h) }}</div>
+                </div>
+            </div>
+            
             <!-- Live trades -->
             <div class="card">
                 <span class="section-title">⚡ 即時成交 ({{ activeCoin?.name }}/{{ getQuoteAsset() }})</span>
@@ -480,27 +518,6 @@
                     </table>
                 </div>
             </div>
-        </div>
-
-        <!-- ══ FAR RIGHT PANEL ══════════════════════════════ -->
-        <div class="right-panel">
-
-            <!-- Trade history (Removed) -->
-
-            <!-- System console -->
-            <div class="log-console-wrap">
-                <div class="log-header">
-                    <span class="log-header-title">💻 系統紀錄</span>
-                    <span class="log-clear" @click="clearLogs">清除</span>
-                </div>
-                <div class="log-console" ref="consoleRef">
-                    <div v-for="(log, idx) in logs" :key="idx">
-                        <span class="log-time">[{{ log.time }}]</span>
-                        <span :class="log.levelClass">{{ log.text }}</span>
-                    </div>
-                </div>
-            </div>
-
             <div class="footer">連接後端 API: http://localhost:8081</div>
         </div>
     </div>
@@ -519,7 +536,7 @@ createApp({
         const isPlacingOrder = ref(false);
         const trades = ref([]);
         const liveTrades = ref([]);
-        const tempTradeAmount = ref(10);
+        const tempTradeAmount = ref(150);
         const selectedTf = ref('1m');
         const timeframes = [
             { label: '1m', value: '1m' },
@@ -547,6 +564,13 @@ createApp({
             { symbol: 'USDCUSDT', name: 'USDC', label: 'USD幣', price: 0, prevPrice: 0, priceClass: '' },
             { symbol: 'XRPUSDT', name: 'XRP', label: '瑞波幣', price: 0, prevPrice: 0, priceClass: '' },
             { symbol: '1000PEPEUSDT', name: 'PEPE', label: '佩佩蛙', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'MRVLUSDT', name: 'MRVL', label: 'MRVL', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'NVDAUSDT', name: 'NVDA', label: 'NVDA', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'HOMEUSDT', name: 'HOME', label: 'HOME', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'WLDUSDT', name: 'WLD', label: 'WLD', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'HUSDT', name: 'H', label: 'H', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'NEARUSDT', name: 'NEAR', label: 'NEAR', price: 0, prevPrice: 0, priceClass: '' },
+            { symbol: 'XLMUSDT', name: 'XLM', label: 'XLM', price: 0, prevPrice: 0, priceClass: '' }
         ]);
         const activeSymbol = ref(localStorage.getItem('activeSymbol') || 'SUIUSDT');
 
@@ -556,6 +580,8 @@ createApp({
         const volumeBars = ref([]);
         const latestVolumeStr = ref('--');
         const volumeUnit = ref('');
+        const high24h = ref(0);
+        const low24h = ref(0);
         const klinesData = ref([]);
 
         const buildVolumeBars = (data) => {
@@ -775,6 +801,37 @@ createApp({
         const clearLogs = () => { logs.value = []; addLog('控制台已清空。'); };
         const toggleCurrency = () => { currentCurrency.value = currentCurrency.value === 'USD' ? 'TWD' : 'USD'; };
 
+
+        let liveTradesWs = null;
+        const initLiveTradesWs = () => {
+            if (liveTradesWs) {
+                try { liveTradesWs.close(); } catch(e) {}
+            }
+            liveTrades.value = []; // 清空舊的成交紀錄
+            if (!activeSymbol.value) return;
+            
+            const sym = activeSymbol.value.toLowerCase();
+            liveTradesWs = new WebSocket(`wss://fstream.binance.com/ws/${sym}@aggTrade`);
+            liveTradesWs.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.e === 'aggTrade') {
+                        // 只需要最新的 50 筆
+                        liveTrades.value.unshift({
+                            id: data.a,
+                            price: parseFloat(data.p),
+                            qty: parseFloat(data.q),
+                            time: data.T,
+                            is_buy: !data.m // m=true 意思是買方是造市商(被動), 代表這筆是主動賣出(賣單吃單); 所以 !m 就是主動買入
+                        });
+                        if (liveTrades.value.length > 50) {
+                            liveTrades.value.pop();
+                        }
+                    }
+                } catch(e) {}
+            };
+        };
+
         const setActiveCoin = async (symbol) => {
             if (bot.value.is_running) {
                 addLog('⚠️ 請先停止機器人，再切換幣種', 'warning');
@@ -783,7 +840,7 @@ createApp({
             activeSymbol.value = symbol;
             localStorage.setItem('activeSymbol', symbol);
             addLog(`切換監聽: ${coins.value.find(c => c.symbol === symbol)?.name}`);
-            fetchPosition(); fetchTrades(); loadKlines();
+            fetchPosition(); fetchTrades(); loadKlines(); initLiveTradesWs();
             try { await fetch(`${API_BASE}/bot-status/set-symbol/${symbol}`, { method: 'POST' }); } catch(e) {}
         };
 
@@ -852,8 +909,10 @@ createApp({
                                 activeSymbol.value = data.best_symbol;
                                 localStorage.setItem('activeSymbol', data.best_symbol);
                                 initChart();
-                                if (ws) { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; ws.close(); }
+                                for (const w of wsConnections) { try { w.close(); } catch(e) {} }
+                                wsConnections.length = 0;
                                 initWebSocket();
+            initLiveTradesWs();
                             }
                         } else {
                             addLog("⚠️ 掃描完成但無合適目標", "warning");
@@ -896,7 +955,7 @@ createApp({
             }
             addLog(`🛒 買入 15 USDT 的 ${coin.name}...`);
             try {
-                const res = await fetch(`${API_BASE}/order/market-buy/${coin.symbol}?amount=15`, { method: 'POST' });
+                const res = await fetch(`${API_BASE}/order/market-buy/${coin.symbol}?amount=${tempTradeAmount.value}`, { method: 'POST' });
                 const data = await res.json();
                 if (res.ok && data.status === 'success') {
                     addLog(`✅ 買入成功! ID:${data.order.orderId} 數量:${parseFloat(data.order.executedQty).toFixed(5)}`, 'success');
@@ -916,7 +975,7 @@ createApp({
             }
             addLog(`🛒 做空 15 USDT 的 ${coin.name}...`);
             try {
-                const res = await fetch(`${API_BASE}/order/market-short/${coin.symbol}?amount=15`, { method: 'POST' });
+                const res = await fetch(`${API_BASE}/order/market-short/${coin.symbol}?amount=${tempTradeAmount.value}`, { method: 'POST' });
                 const data = await res.json();
                 if (res.ok && data.status === 'success') {
                     addLog(`✅ 做空成功! ID:${data.order.orderId} 數量:${parseFloat(data.order.executedQty).toFixed(5)}`, 'success');
@@ -942,7 +1001,7 @@ createApp({
         };
 
         // ── WebSocket ─────────────────────────────────────────────
-        let ws, wsFallbackTimeout, reconnectTimer, fallbackInterval;
+        let wsFallbackTimeout, reconnectTimer, fallbackInterval;
         let isUsingFallback = false, lastLogTime = 0;
         let statusInterval, rateInterval, positionInterval, tradesInterval, logsInterval, klineInterval;
 
@@ -968,76 +1027,72 @@ createApp({
             }, 3000);
         };
 
+        const wsConnections = [];
+
         const initWebSocket = () => {
             if (wsFallbackTimeout) clearTimeout(wsFallbackTimeout);
             if (reconnectTimer) clearTimeout(reconnectTimer);
-            if (ws) { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; try { ws.close(); } catch(e) {} ws = null; }
+            for (const w of wsConnections) { try { w.close(); } catch(e) {} }
+            wsConnections.length = 0;
 
             wsFallbackTimeout = setTimeout(() => {
-                if (!isUsingFallback && !activeCoin.value?.price) startHTTPFallback();
-            }, 5000);
+                const hasAnyPrice = coins.value.some(c => c.price > 0);
+                if (!hasAnyPrice) startHTTPFallback();
+            }, 8000);
 
-            addLog('建立幣安行情 WebSocket...');
-            const streams = coins.value.map(c => `${c.symbol.toLowerCase()}@ticker`).join('/') + '/' + coins.value.map(c => `${c.symbol.toLowerCase()}@trade`).join('/');
-            ws = new WebSocket(`wss://fstream.binance.com/stream?streams=${streams}`);
-
-            ws.onopen = () => { addLog('⚡ 幣安 WebSocket 連線成功！'); };
-
-            ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                const data = msg.data;
-                if (!data?.e) return;
-                if (data.e === 'trade') {
-                    const t = {
-                        id: data.t,
-                        time: data.T,
-                        price: parseFloat(data.p),
-                        qty: parseFloat(data.q),
-                        is_buy: !data.m,
-                        symbol: data.s
-                    };
-                    if (data.s === activeSymbol.value) {
-                        liveTrades.value.unshift(t);
-                        if (liveTrades.value.length > 30) liveTrades.value.pop();
-                    }
-                }
-                if (data.e === '24hrTicker' && data?.s) {
-                    if (wsFallbackTimeout) { clearTimeout(wsFallbackTimeout); wsFallbackTimeout = null; }
-                    if (isUsingFallback) { isUsingFallback = false; clearInterval(fallbackInterval); addLog('⚡ WebSocket 恢復'); }
-                    const coin = coins.value.find(c => c.symbol === data.s);
-                    if (coin) {
-                        coin.prevPrice = coin.price;
-                        coin.price = parseFloat(data.c);
-                        if (coin.prevPrice > 0) {
-                            coin.priceClass = coin.price > coin.prevPrice ? 'up' : coin.price < coin.prevPrice ? 'down' : '';
-                            setTimeout(() => { coin.priceClass = ''; }, 400);
-                        }
-                        if (data.s === activeSymbol.value) {
-                            updateLatestCandle(data.s, coin.price);
-                            const now = Date.now();
-                            if (now - lastLogTime > 1200) {
-                                lastLogTime = now;
-                                const fv = currentCurrency.value === 'TWD'
-                                    ? `NT$${(coin.price * twdRate.value).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`
-                                    : `$${coin.price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-                                addLog(`📊 [${coin.name}] ${fv}`);
-                            }
-                            if (position.value.qty > 0) {
-                                position.value.current_price = coin.price;
-                                position.value.current_value = position.value.qty * coin.price;
-                                position.value.pnl = position.value.current_value - position.value.total_cost;
-                                position.value.pnl_percent = position.value.total_cost > 0 ? (position.value.pnl / position.value.total_cost) * 100 : 0;
+            let connected = 0, failed = 0;
+            for (const coin of coins.value) {
+                const sym = coin.symbol.toLowerCase();
+                const w = new WebSocket(`wss://fstream.binance.com/ws/${sym}@ticker`);
+                w._coinSymbol = coin.symbol;
+                w.onopen = () => { connected++; };
+                w.onerror = () => { failed++; };
+                w.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.e === '24hrTicker' && data?.s) {
+                            if (wsFallbackTimeout) { clearTimeout(wsFallbackTimeout); wsFallbackTimeout = null; }
+                            if (isUsingFallback) { isUsingFallback = false; clearInterval(fallbackInterval); addLog('⚡ WebSocket 恢復'); }
+                            const c = coins.value.find(x => x.symbol === data.s);
+                            if (c) {
+                                c.prevPrice = c.price;
+                                c.price = parseFloat(data.c);
+                                if (c.prevPrice > 0) {
+                                    c.priceClass = c.price > c.prevPrice ? 'up' : c.price < c.prevPrice ? 'down' : '';
+                                    setTimeout(() => { c.priceClass = ''; }, 400);
+                                }
+                                if (data.s === activeSymbol.value) {
+                                    updateLatestCandle(data.s, c.price);
+                                    if (position.value.qty > 0) {
+                                        position.value.current_price = c.price;
+                                        position.value.current_value = position.value.qty * c.price;
+                                        position.value.pnl = position.value.current_value - position.value.total_cost;
+                                        position.value.pnl_percent = position.value.total_cost > 0 ? (position.value.pnl / position.value.total_cost) * 100 : 0;
+                                    }
+                                }
                             }
                         }
-                    }
-                }
-            };
-
-            ws.onerror = () => { addLog('WS 異常', 'danger'); startHTTPFallback(); };
-            ws.onclose = () => {
-                addLog('WS 中斷，5s 後重連...', 'warning');
-                if (!reconnectTimer) reconnectTimer = setTimeout(() => { reconnectTimer = null; initWebSocket(); }, 5000);
-            };
+                    } catch(e) {}
+                };
+                w.onclose = () => {
+                    failed++;
+                    setTimeout(() => {
+                        if (!isUsingFallback) {
+                            const idx = wsConnections.indexOf(w);
+                            if (idx > -1) { wsConnections.splice(idx, 1); }
+                            const nw = new WebSocket(`wss://fstream.binance.com/ws/${sym}@ticker`);
+                            nw._coinSymbol = coin.symbol;
+                            // re-assign same event handlers
+                            nw.onopen = w.onopen;
+                            nw.onerror = w.onerror;
+                            nw.onmessage = w.onmessage;
+                            nw.onclose = w.onclose;
+                            wsConnections.push(nw);
+                        }
+                    }, 10000);
+                };
+                wsConnections.push(w);
+            }
         };
 
         // Backend logs sync
@@ -1070,6 +1125,7 @@ createApp({
             fetchTrades();
             loadKlines();
             initWebSocket();
+            initLiveTradesWs();
             fetch(`${API_BASE}/bot-status/set-symbol/${activeSymbol.value}`, { method: 'POST' });
             fetchBackendLogs();
 
@@ -1082,7 +1138,7 @@ createApp({
         });
 
         onUnmounted(() => {
-            if (ws) { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; ws.close(); }
+            for (const w of wsConnections) { try { w.close(); } catch(e) {} }
             if (wsFallbackTimeout) clearTimeout(wsFallbackTimeout);
             if (reconnectTimer)    clearTimeout(reconnectTimer);
             if (fallbackInterval)  clearInterval(fallbackInterval);
@@ -1101,7 +1157,7 @@ createApp({
             toggleBot, isPlacingOrder, placeMarketBuy, placeMarketShort, placeMarketSell, cancelAllOrders, autoSnipeBestCoin, logs, consoleRef, clearLogs,
             tempTradeAmount, updateTradeAmount,
             selectedTf, timeframes, changeTf,
-            volumeBars, latestVolumeStr, volumeUnit,
+            volumeBars, latestVolumeStr, volumeUnit, high24h, low24h,
         };
     }
 }).mount('#app');

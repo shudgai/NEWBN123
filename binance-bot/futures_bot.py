@@ -767,20 +767,13 @@ async def watch_kline_and_strategy():
                         if range_pct >= 0.1:
                             current_open = opens[-1]
                             
-                            # 牛市：做多（回調到支撐區 或 突破壓力追漲）
+                            # 牛市：中線以上+綠K 順勢進場
                             if "牛市" in macro_regime:
-                                # 回調到支撐區 + 綠K
-                                if close_price <= support + (range_height * 0.2):
-                                    if close_price > current_open:
-                                        last_buy_time = current_time
-                                        print(f"🚀 [牛市回調進場] 回踩支撐見漲(綠K)！支撐:{support:.4f}，觸發做多(Long)")
-                                        asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
-                                # 突破壓力區 + 綠K (追強勢)
-                                elif close_price >= resistance - (range_height * 0.1):
-                                    if close_price > current_open:
-                                        last_buy_time = current_time
-                                        print(f"🚀 [牛市突破追漲] 突破壓力{resistance:.4f}，觸發做多(Long)")
-                                        asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
+                                mid_line = support + (range_height * 0.5)
+                                if close_price >= mid_line and close_price > current_open:
+                                    last_buy_time = current_time
+                                    print(f"🚀 [牛市順勢進場] 區間中線+綠K！中線:{mid_line:.4f}，觸發做多(Long)")
+                                    asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
                             
                             # 熊市：只做空（反彈到壓力區）
                             elif "熊市" in macro_regime:

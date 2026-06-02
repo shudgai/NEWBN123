@@ -361,11 +361,34 @@ def get_logs():
 @app.post("/api/bot-status/set-symbol/{symbol}")
 def set_bot_symbol(symbol: str):
     """設定當前機器人自動交易的幣種"""
+    global bot_process
     bot_status["active_symbol"] = symbol.upper()
     _, quote_asset = parse_symbol(symbol)
     amt = bot_status.get("trade_amount", 0.02)
     bot_status["strategy"] = f"MA Deviation ({amt} {quote_asset})"
     add_system_log(f"🎯 自動交易監聽目標切換為: {symbol.upper()}", "info")
+    
+    # 如果機器人正在執行，則重新啟動機器人以套用新幣種
+    if bot_status.get("is_running"):
+        if bot_process:
+            try:
+                bot_process.terminate()
+                bot_process.wait(timeout=2)
+            except:
+                bot_process.kill()
+        
+        trade_amt = bot_status.get("trade_amount", 10.0)
+        sym_for_bot = symbol.upper().replace("USDT", "/USDT")
+        if "/USDT" not in sym_for_bot:
+            sym_for_bot = symbol.upper() + "/USDT"
+            
+        import sys
+        import threading
+        cmd = [sys.executable, "-u", "futures_bot.py", "--symbol", sym_for_bot, "--amount", str(trade_amt)]
+        bot_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        threading.Thread(target=read_bot_output, args=(bot_process,), daemon=True).start()
+        add_system_log(f"♻️ 已自動重啟機器人切換至 ({sym_for_bot}, 金額: {trade_amt})", "success")
+        
     return {"status": "success", "active_symbol": bot_status["active_symbol"]}
 
 @app.post("/api/bot-status/set-amount/{amount}")

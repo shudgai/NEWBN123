@@ -767,21 +767,19 @@ async def watch_kline_and_strategy():
                         if range_pct >= 0.1:
                             current_open = opens[-1]
                             
-                            # 牛市：中線以上+綠K 順勢進場
+                            # 牛市：regime == 進場訊號，直接買（regime 每5分鐘檢測，已過濾雜訊）
                             if "牛市" in macro_regime:
-                                mid_line = support + (range_height * 0.5)
-                                if close_price >= mid_line and close_price > current_open:
+                                if close_price > current_open:
                                     last_buy_time = current_time
-                                    print(f"🚀 [牛市順勢進場] 區間中線+綠K！中線:{mid_line:.4f}，觸發做多(Long)")
+                                    print(f"🚀 [牛市啟動進場] 牛市信號+綠K！價格:{close_price:.4f}，觸發做多(Long)")
                                     asyncio.create_task(execute_order_and_risk(side='buy', price=close_price))
                             
-                            # 熊市：只做空（反彈到壓力區）
+                            # 熊市：regime == 進場訊號，直接做空
                             elif "熊市" in macro_regime:
-                                if close_price >= resistance - (range_height * 0.2):
-                                    if close_price < current_open:
-                                        last_buy_time = current_time
-                                        print(f"🚀 [熊市反彈進場] 反彈壓力見跌(紅K)！壓力:{resistance:.4f}，但現貨市場無法做空，故忽略訊號。")
-                                        # asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
+                                if close_price < current_open:
+                                    last_buy_time = current_time
+                                    print(f"🚀 [熊市啟動進場] 熊市信號+紅K！價格:{close_price:.4f}，觸發做空(Short)")
+                                    asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
                 
         except Exception as e:
             import traceback

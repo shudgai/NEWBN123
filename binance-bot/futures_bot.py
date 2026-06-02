@@ -166,15 +166,12 @@ async def update_dynamic_leverage():
     global LEVERAGE, current_1h_deviation, macro_regime
     abs_dev = abs(current_1h_deviation)
     old = LEVERAGE
-    if "猴市" in macro_regime:
-        LEVERAGE = 10
+    if abs_dev > 0.20:
+        LEVERAGE = 2
+    elif abs_dev > 0.10:
+        LEVERAGE = 5
     else:
-        if abs_dev > 0.20:
-            LEVERAGE = 2
-        elif abs_dev > 0.10:
-            LEVERAGE = 5
-        else:
-            LEVERAGE = 10
+        LEVERAGE = 10
     if LEVERAGE != old:
         print(f"⚙️ [動態槓桿] 偏離度={current_1h_deviation*100:.1f}% → 調整為 {LEVERAGE}x")
         if not PAPER_TRADING:
@@ -677,9 +674,9 @@ async def watch_kline_and_strategy():
                 else:
                     profit_pct = (current_pos_avg - close_price) / current_pos_avg
 
-                if profit_pct <= -0.03:
+                if profit_pct <= -0.10:
                     close_signal = True
-                    close_reason = f"⛔ 硬止損：虧損超過 3% ({profit_pct*100:.1f}%)"
+                    close_reason = f"⛔ 硬止損：虧損超過 10% ({profit_pct*100:.1f}%)"
                     
                 # 【統一 0.5% 階梯追蹤停利 (跨環境通用)】
                 global trailing_highest, trailing_lowest

@@ -739,8 +739,8 @@ async def watch_kline_and_strategy():
                             if close_price >= resistance - (range_height * 0.2):
                                 if close_price < current_open:
                                     last_buy_time = current_time
-                                    print(f"⚠️ [雙刀流: 區間] 碰壓力區見跌(紅K)！箱頂:{resistance:.4f}，但現貨市場無法做空，故忽略訊號。")
-                                    # asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
+                                    print(f"⚠️ [雙刀流: 區間] 碰壓力區見跌(紅K)！箱頂:{resistance:.4f}，觸發做空(Short)")
+                                    asyncio.create_task(execute_order_and_risk(side='sell', price=close_price))
                             
                             # 接近支撐位 (底部 20% 區域)，且出現綠K (走勢反轉向上)
                             elif close_price <= support + (range_height * 0.2):

@@ -889,6 +889,11 @@ createApp({
         const placeMarketBuy = async () => {
             const coin = activeCoin.value; if (!coin) return;
             isPlacingOrder.value = true;
+            if (position.value.qty < 0) {
+                addLog(`🔄 先平空單，再開多...`);
+                try { await fetch(`${API_BASE}/order/market-sell/${coin.symbol}`, { method: 'POST' }); } catch(e) {}
+                await new Promise(r => setTimeout(r, 600));
+            }
             addLog(`🛒 買入 15 USDT 的 ${coin.name}...`);
             try {
                 const res = await fetch(`${API_BASE}/order/market-buy/${coin.symbol}?amount=15`, { method: 'POST' });
@@ -904,6 +909,11 @@ createApp({
         const placeMarketShort = async () => {
             const coin = activeCoin.value; if (!coin) return;
             isPlacingOrder.value = true;
+            if (position.value.qty > 0) {
+                addLog(`🔄 先平多單，再開空...`);
+                try { await fetch(`${API_BASE}/order/market-sell/${coin.symbol}`, { method: 'POST' }); } catch(e) {}
+                await new Promise(r => setTimeout(r, 600));
+            }
             addLog(`🛒 做空 15 USDT 的 ${coin.name}...`);
             try {
                 const res = await fetch(`${API_BASE}/order/market-short/${coin.symbol}?amount=15`, { method: 'POST' });

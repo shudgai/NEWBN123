@@ -707,7 +707,8 @@ async def watch_kline_and_strategy():
                     tp_threshold = 0.002
                     # 追蹤回落距離設為 0.15% 
                     # (確保在 0.2% 啟動時，停損線為 0.15%，扣除 0.1% 雙向市價手續費後，還能保本微利)
-                    trailing_distance = 0.0015
+                    # 追蹤回落距離設為 0.05% (最高0.2%時，回落到0.15%平倉。最高0.25%時，回落到0.2%平倉)
+                    trailing_distance = 0.0005
                     
                     if is_long:
                         if close_price > trailing_highest:

@@ -785,8 +785,8 @@ async def watch_kline_and_strategy():
                         if close_price >= resistance - (range_height * 0.40):
                             if current_rsi < 30:
                                 pass # 不在極度超賣時做空
-                            elif "牛市" in macro_regime and current_rsi < 70:
-                                pass # 牛市順勢做多，除非 RSI >= 70 極度超買才反轉做空
+                            elif "牛市" in macro_regime:
+                                pass # [方案A] 牛市絕對禁止逆勢做空
                             else:
                                 last_buy_time = current_time
                                 print(f"⚠️ [全天候: 摸頂] 衝到天花板！箱頂:{resistance:.4f} (RSI={current_rsi:.1f})，觸發做空(Short)")
@@ -796,8 +796,8 @@ async def watch_kline_and_strategy():
                         elif close_price <= support + (range_height * 0.40):
                             if current_rsi > 70:
                                 pass # 不在極度超買時做多
-                            elif "熊市" in macro_regime and current_rsi > 30:
-                                pass # 熊市順勢做空，除非 RSI <= 30 極度超賣才反轉做多
+                            elif "熊市" in macro_regime:
+                                pass # [方案A] 熊市絕對禁止逆勢做多 (抄底)
                             else:
                                 last_buy_time = current_time
                                 print(f"⚠️ [全天候: 抄底] 跌到地板！箱底:{support:.4f} (RSI={current_rsi:.1f})，觸發做多(Long)")

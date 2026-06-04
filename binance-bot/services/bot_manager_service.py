@@ -21,20 +21,12 @@ bot_processes = {}  # {symbol: subprocess.Popen}
 
 def get_bot_status():
     from services.paper_trade_service import get_paper_balance
-    import subprocess
     import os
     from dotenv import load_dotenv
     
     load_dotenv()
     if os.getenv("TRADING_MODE", "paper") == "paper":
         bot_status["balance_quote"] = get_paper_balance()
-        
-    # Check if any futures_bot.py is running
-    try:
-        res = subprocess.run(["pgrep", "-f", "futures_bot.py"], capture_output=True)
-        bot_status["is_running"] = res.returncode == 0
-    except:
-        pass
         
     return bot_status
 
@@ -59,6 +51,11 @@ def read_bot_output(proc, sym):
             elif line.startswith("@@AMOUNT@@"):
                 try:
                     bot_status["trade_amount"] = float(line.replace("@@AMOUNT@@", "").strip())
+                except:
+                    pass
+            elif line.startswith("@@LEVERAGE@@"):
+                try:
+                    bot_status["leverage"] = int(line.replace("@@LEVERAGE@@", "").strip())
                 except:
                     pass
             else:
@@ -102,8 +99,7 @@ def _start_single_bot(symbol: str, trade_amt: float):
 
 def start_bot(symbols=None, trade_amt: float = None):
     global bot_processes
-    if symbols is None:
-        symbols = bot_status.get("active_symbols", [])
+    symbols = ["SUIUSDT", "1000SHIBUSDT", "ORDIUSDT", "AVAXUSDT", "OPUSDT", "HYPEUSDT", "LABUSDT", "ZECUSDT", "HUMAUSDT", "XRPUSDT", "1000PEPEUSDT", "WLDUSDT", "NEARUSDT", "DOGEUSDT", "DOTUSDT", "LINKUSDT", "UNIUSDT", "WIFUSDT", "ADAUSDT", "FETUSDT"]
     if isinstance(symbols, str):
         symbols = [symbols] # 向後相容單一字串
     if not symbols:
@@ -174,9 +170,8 @@ def set_bot_symbol(symbols):
     bot_status["strategy"] = f"Top 5 Sniper ({amt})"
     add_system_log(f"🎯 自動交易監聽目標切換為: {', '.join(symbols)}", "info")
     
-    if bot_status.get("is_running"):
-        add_system_log("♻️ 已自動重啟機器人以套用新幣種", "success")
-        start_bot(symbols, amt) # start_bot 內會做 diff 啟動/關閉
+    # UI clicking just changes the visual active symbol, don't restart bots
+    pass
         
     # 相容舊版回傳
     return symbols[0] if symbols else ""
@@ -196,4 +191,9 @@ def set_bot_amount(amount: float):
     bot_status["trade_amount"] = amount
     bot_status["strategy"] = f"Top 5 Sniper ({amount})"
     add_system_log(f"⚙️ 自動交易單次數量設定為: {amount}", "info")
+    
+    if bot_status.get("is_running"):
+        add_system_log("♻️ 已重新啟動所有機器人以套用新的下單金額", "warning")
+        restart_bot()
+        
     return bot_status["trade_amount"]

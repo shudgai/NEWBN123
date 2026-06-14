@@ -84,19 +84,21 @@
                 </svg>
                 回首頁
             </a>
-            <button @click="clearAllData" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0">
-                清空全部資料
-            </button>
-        </div>
+            </div>
         <div class="flex items-center justify-center gap-4">
             <label for="fontSizeSlider" class="font-bold text-sm text-gray-700 whitespace-nowrap">字體大小調整 (目前: @{{ fontSize }}px)</label>
             <input type="range" id="fontSizeSlider" v-model="fontSize" min="10" max="24" step="1" class="w-32 md:w-48 cursor-pointer focus:outline-none focus:ring-0">
         </div>
         <div>
-            <button @click="scrollToBottom" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2 focus:outline-none focus:ring-0">
+            <div class="flex gap-2">
+                <button @click="scrollToBottom" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded shadow transition-colors flex items-center gap-2 focus:outline-none focus:ring-0">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
                 移至最底
             </button>
+                <button @click="clearAllData" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded shadow transition-colors focus:outline-none focus:ring-0">
+                清空全部資料
+            </button>
+            </div>
         </div>
     </div>
 
@@ -109,7 +111,7 @@
             </div>
             <div class="flex">
                 <div class="font-bold w-24">運送日期：</div>
-                <div>115/05/01-115/05/31</div>
+                <div>5月1日-5月31日</div>
             </div>
         </div>
         <div>
@@ -223,14 +225,14 @@
             <tbody @paste="handlePaste">
                 <!-- Data Rows -->
                 <tr v-for="(row, index) in tableData" :key="row.id || index" :data-id="row.id" class="border-b border-gray-300 hover:bg-gray-50">
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'date')}" :style="getCellStyle(row, 0)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.date" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'date', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'client_name')}" :style="getCellStyle(row, 1)"><input list="client-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.client_name" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'client_name', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'bill_no')}" :style="getCellStyle(row, 2)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.bill_no" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'bill_no', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}" :style="getCellStyle(row, 3)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}" :style="getCellStyle(row, 4)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
-                    <td class="p-0 text-right relative group" :class="{'fill-highlight': isFillHighlighted(index, 'amount')}" :style="getCellStyle(row, 5)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.amount" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'amount', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}" :style="getCellStyle(row, 6)"><input list="location-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
-                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}" :style="getCellStyle(row, 7)"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'date')}" :style="getCellStyle(row, 0)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.date" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400" @focus="$event.target.select()"><div class="fill-handle" @mousedown="startFill(index, 'date', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'client_name')}" :style="getCellStyle(row, 1)"><input list="client-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.client_name" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400" @focus="$event.target.select()"><div class="fill-handle" @mousedown="startFill(index, 'client_name', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'bill_no')}" :style="getCellStyle(row, 2)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.bill_no" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400" @focus="$event.target.select()"><div class="fill-handle" @mousedown="startFill(index, 'bill_no', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'pieces')}" :style="getCellStyle(row, 3)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.pieces" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400" @focus="$event.target.select()"><div class="fill-handle" @mousedown="startFill(index, 'pieces', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'weight')}" :style="getCellStyle(row, 4)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.weight" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400" @focus="$event.target.select()"><div class="fill-handle" @mousedown="startFill(index, 'weight', $event)"></div></td>
+                    <td class="p-0 text-right relative group" :class="{'fill-highlight': isFillHighlighted(index, 'amount')}" :style="getCellStyle(row, 5)"><input autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.number="row.amount" class="nav-input w-full p-1 bg-transparent border-0 text-right focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400" @focus="$event.target.select()"><div class="fill-handle" @mousedown="startFill(index, 'amount', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'location')}" :style="getCellStyle(row, 6)"><input list="location-names" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.location" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400" @focus="$event.target.select()"><div class="fill-handle" @mousedown="startFill(index, 'location', $event)"></div></td>
+                    <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}" :style="getCellStyle(row, 7)"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @change="updateRow(row)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400" @focus="$event.target.select()"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
                     <td class="p-1 text-right text-blue-600 font-bold bg-gray-50 align-middle">@{{ getGroupTotalWeight(row) }}</td>
                     <td class="p-0 text-center align-middle relative group" :class="{'fill-highlight': isFillHighlighted(index, 'selected')}">
                         <input type="checkbox" v-model="selectedRows" :value="row.id" class="w-4 h-4 cursor-pointer align-middle opacity-50 group-hover:opacity-100 transition-opacity" :class="{'opacity-100': selectedRows.includes(row.id)}">
@@ -240,14 +242,14 @@
 
                 <!-- Input Row (Moved to bottom) -->
                 <tr class="bg-blue-50 border-t-2 border-blue-200">
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.date" class="nav-input w-full border p-1" placeholder="日期"></td>
-                    <td><input list="client-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.client_name" class="nav-input w-full border p-1" placeholder="客戶名稱"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.bill_no" class="nav-input w-full border p-1" placeholder="提單號碼"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.pieces" class="nav-input w-full border p-1 text-right" placeholder="件數"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.weight" class="nav-input w-full border p-1 text-right" placeholder="重量"></td>
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" @input="isAmountManual = true" type="text" v-model.number="newRow.amount" class="nav-input w-full border p-1 text-right" placeholder="運費"></td>
-                    <td><input list="location-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.location" class="nav-input w-full border p-1" placeholder="地點"></td>
-                    <td><input list="remark-options" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.remark" class="nav-input w-full border p-1" placeholder="備註"></td>
+                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" @change="formatNewDate" type="text" v-model.trim="newRow.date" class="nav-input w-full border p-1" placeholder="日期" @focus="$event.target.select()"></td>
+                    <td><input list="client-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.client_name" class="nav-input w-full border p-1" placeholder="客戶名稱" @focus="$event.target.select()"></td>
+                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.bill_no" class="nav-input w-full border p-1" placeholder="提單號碼" @focus="$event.target.select()"></td>
+                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.pieces" class="nav-input w-full border p-1 text-right" placeholder="件數" @focus="$event.target.select()"></td>
+                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.number="newRow.weight" class="nav-input w-full border p-1 text-right" placeholder="重量" @focus="$event.target.select()"></td>
+                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" @input="isAmountManual = true" type="text" v-model.number="newRow.amount" class="nav-input w-full border p-1 text-right" placeholder="運費" @focus="$event.target.select()"></td>
+                    <td><input list="location-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.location" class="nav-input w-full border p-1" placeholder="地點" @focus="$event.target.select()"></td>
+                    <td><input list="remark-options" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.remark" class="nav-input w-full border p-1" placeholder="備註" @focus="$event.target.select()"></td>
                     <td></td>
                     <td class="text-center">
                         <button @click="addRow" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm shadow">新增</button>
@@ -286,6 +288,9 @@
             <a href="/" class="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded shadow transition-colors">
                 回首頁
             </a>
+            <button @click="manualSave" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
+                儲存資料
+            </button>
             <button @click="exportExcel" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow transition-colors">
                 匯出 Excel
             </button>
@@ -322,6 +327,29 @@
             
             const sortState = ref({ column: null, order: 'asc' });
 
+            const manualSave = async () => {
+                if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+                    document.activeElement.blur();
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, 100)); // wait for blur to process
+                
+                const hasOtherData = newRow.value.bill_no || 
+                                     (newRow.value.amount !== null && newRow.value.amount !== '' && newRow.value.amount !== 0) || 
+                                     (newRow.value.pieces !== null && newRow.value.pieces !== '' && newRow.value.pieces !== 0) || 
+                                     (newRow.value.weight !== null && newRow.value.weight !== '' && newRow.value.weight !== 0) || 
+                                     newRow.value.location || 
+                                     newRow.value.remark;
+                                     
+                if (newRow.value.date && newRow.value.client_name && hasOtherData) {
+                    await addRow();
+                }
+                
+                toastMessage.value = '資料已確認儲存！';
+                showToast.value = true;
+                setTimeout(() => { showToast.value = false; }, 3000);
+            };
+            
             const resetView = async () => {
                 sortState.value = { column: null, order: 'asc' };
                 selectedRows.value = [];
@@ -487,6 +515,8 @@
 
             const updateRow = async (row) => {
                 try {
+                row.date = parseAndFormatDate(row.date);
+
                     const payload = {
                         date: row.date,
                         bill_no: row.bill_no,
@@ -688,6 +718,26 @@
                 const minIdx = Math.min(startIdx, endIdx);
                 const maxIdx = Math.max(startIdx, endIdx);
 
+                let baseMonth = null;
+                let baseDay = null;
+                let baseYear = null;
+                let dateType = null;
+                
+                if (field === 'date' && typeof value === 'string') {
+                    const matchZh = value.match(/^(\d{1,2})月(\d{1,2})日$/);
+                    const matchTw = value.match(/^(\d{2,3})\/(\d{1,2})\/(\d{1,2})$/);
+                    if (matchZh) {
+                        baseMonth = parseInt(matchZh[1]);
+                        baseDay = parseInt(matchZh[2]);
+                        dateType = 'zh';
+                    } else if (matchTw) {
+                        baseYear = parseInt(matchTw[1]);
+                        baseMonth = parseInt(matchTw[2]);
+                        baseDay = parseInt(matchTw[3]);
+                        dateType = 'tw';
+                    }
+                }
+
                 for (let i = minIdx; i <= maxIdx; i++) {
                     if (i === startIdx) continue;
                     
@@ -701,7 +751,23 @@
                         continue;
                     }
 
-                    tableData.value[i][field] = value;
+                    let newValue = value;
+                    if (field === 'date' && dateType !== null) {
+                        const daysToAdd = i - startIdx;
+                        const y = dateType === 'tw' ? (baseYear + 1911) : 2026;
+                        const tempDate = new Date(y, baseMonth - 1, baseDay + daysToAdd);
+                        
+                        if (dateType === 'zh') {
+                            newValue = `${tempDate.getMonth() + 1}月${tempDate.getDate()}日`;
+                        } else if (dateType === 'tw') {
+                            const newTwYear = tempDate.getFullYear() - 1911;
+                            const mm = String(tempDate.getMonth() + 1).padStart(2, '0');
+                            const dd = String(tempDate.getDate()).padStart(2, '0');
+                            newValue = `${newTwYear}/${mm}/${dd}`;
+                        }
+                    }
+
+                    tableData.value[i][field] = newValue;
                     if (field === 'remark') {
                         await handleRemarkChange(tableData.value[i], i);
                     } else if (field === 'weight' || field === 'location') {
@@ -719,8 +785,36 @@
                 return index >= min && index <= max;
             };
 
+            
+            const formatNewDate = () => {
+                newRow.value.date = parseAndFormatDate(newRow.value.date);
+            };
+
+            
+            const parseAndFormatDate = (dateStr) => {
+                if (!dateStr || typeof dateStr !== 'string') return dateStr;
+                let m = null, d = null;
+                const slashMatch = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
+                if (slashMatch) {
+                    m = parseInt(slashMatch[1], 10);
+                    d = parseInt(slashMatch[2], 10);
+                } else if (/^\d{3,4}$/.test(dateStr)) {
+                    if (dateStr.length === 4) {
+                        m = parseInt(dateStr.substring(0, 2), 10);
+                        d = parseInt(dateStr.substring(2, 4), 10);
+                    } else if (dateStr.length === 3) {
+                        m = parseInt(dateStr.substring(0, 1), 10);
+                        d = parseInt(dateStr.substring(1, 3), 10);
+                    }
+                }
+                if (m !== null && d !== null && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+                    return `${m}月${d}日`;
+                }
+                return dateStr;
+            };
+
             const newRow = ref({
-                date: '115/05/04',
+                date: '5月4日',
                 client_name: '',
                 bill_no: '',
                 pieces: null,
@@ -889,6 +983,8 @@
             };
 
             // 282: 無自動報價，使用者手動輸入金額
+            
+
             watch([() => newRow.value.weight], ([newWeight]) => {
                 if (newRow.value.weight) {
                     newRow.value.weight = Math.round(newRow.value.weight);
@@ -1152,6 +1248,28 @@
                     const rowStyles = htmlStylesData[r] || [];
                     
                     if (rowVals.length === 0 || (rowVals.length === 1 && rowVals[0] === '')) continue;
+
+                    // Handle 7-column merged "Weight Location" Excel format
+                    if (rowVals.length === 7) {
+                        const weightLoc = rowVals[5].trim();
+                        const match1 = weightLoc.match(/^([\d\.]+)\s+([^\d\s].*)$/);
+                        const match2 = weightLoc.match(/^([\d\.]+)([^\d\.\s].*)$/);
+                        if (match1) {
+                            rowVals.splice(5, 1, match1[1].trim(), match1[2].trim());
+                        } else if (match2) {
+                            rowVals.splice(5, 1, match2[1].trim(), match2[2].trim());
+                        } else if (/^[\d\.]+$/.test(weightLoc) || weightLoc === '') {
+                            rowVals.splice(5, 1, weightLoc, '');
+                        } else {
+                            rowVals.splice(5, 1, '', weightLoc);
+                        }
+                    }
+                    // Handle 8-column merged "Weight Location" format when forklift_fee exists (like 639)
+                    // If the Excel has 7 columns, but the target table expects 9 columns (with forklift)
+                    // Actually, if rowVals length becomes 8 after splice, and fields has 9, 
+                    // remark goes into forklift, which is wrong.
+                    // Let's just fix rowVals.length == 7 logic.
+
                     
                     try {
                         let targetRow;

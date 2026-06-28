@@ -1,29 +1,39 @@
 import os
+import io
+import csv
+import json
 import math
 import random
 import datetime
+import threading
+import time
 import numpy as np
+import requests
+import pytz
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-import requests
 from dotenv import load_dotenv
+from typing import List
 
 from services.utils import parse_symbol, paper_key
-from services.system_log_service import get_system_logs
-from services.bot_manager_service import get_bot_status, toggle_bot, set_bot_symbol, set_bot_amount, set_bot_watch_symbols
+from services.system_log_service import get_system_logs, add_system_log, clear_system_logs
+from services.bot_manager_service import get_bot_status, toggle_bot, set_bot_symbol, set_bot_amount, set_bot_watch_symbols, kill_bot
 from services.binance_service import (
-    api_key, get_price, get_all_prices, get_position, get_trades, get_klines,
+    api_key, client, get_price, get_all_prices, get_position, get_trades, get_klines,
     market_buy, market_short, market_sell
 )
 from services.paper_trade_service import (
     get_paper_balance, get_paper_position, get_paper_trades,
     market_buy as paper_market_buy, 
     market_short as paper_market_short, 
-    market_sell as paper_market_sell
+    market_sell as paper_market_sell,
+    force_close_all_positions,
+    reset_paper_state,
+    get_session_start_balance,
 )
-from services.radar_service import trigger_manual_radar
+from services.radar_service import trigger_manual_radar, auto_radar_switch, CORE_SYMBOLS, RADAR_SELECT_COUNT
 
 load_dotenv()
 
@@ -32,7 +42,7 @@ app = FastAPI(title="Binance Bot API Backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -40,26 +50,21 @@ app.add_middleware(
 def is_paper_trading():
     return not api_key or api_key == "your_api_key_here"
 
-import threading
-import time
-import pytz
-from services.bot_manager_service import kill_bot
-from services.radar_service import auto_radar_switch
-from services.paper_trade_service import force_close_all_positions
-from services.system_log_service import add_system_log, clear_system_logs
-
 def daily_market_clean_and_reset(is_manual=False):
     """大掃除與即時同步前五名 (模組化)"""
     try:
         trigger_type = "手動強制" if is_manual else "每日/開機"
-        add_system_log(f"🔄 [{trigger_type}淨空] 啟動大掃除換班機制！", "warning")
+        add_system_log(f"🔄 [{trigger_type}換班] 啟動排程換班機制！", "warning")
         kill_bot()
-        force_close_all_positions()
+        if is_manual:
+            force_close_all_positions()
+            add_system_log(f"🧹 [{trigger_type}淨空] 系統狀態已重置，舊訂單已撤銷並強制平倉。", "success")
+        else:
+            add_system_log(f"🧹 [{trigger_type}換班] 已保留現有持倉部位，將由機器人繼續監控至正常出場。", "success")
         clear_system_logs()
-        add_system_log(f"🧹 [{trigger_type}淨空] 系統狀態已重置，舊訂單已撤銷並平倉。", "success")
         auto_radar_switch(force_start=True)
     except Exception as e:
-        add_system_log(f"🚨 [{trigger_type}淨空] 發生錯誤: {e}", "danger")
+        add_system_log(f"🚨 [{trigger_type}換班] 發生錯誤: {e}", "danger")
 
 def daily_reset_daemon():
     tz = pytz.timezone('Asia/Taipei')
@@ -76,18 +81,39 @@ def daily_reset_daemon():
         time.sleep(wait_seconds)
         daily_market_clean_and_reset(is_manual=False)
 
+def _spot_sltp_daemon():
+    """Background thread: check spot SL/TP every 10 seconds."""
+    import time as _time
+    while True:
+        try:
+            from services.spot_service import check_sltp, get_open_trades
+            if get_open_trades():
+                closed = check_sltp(client)
+                for c in closed:
+                    sign = "+" if c["pnl"] >= 0 else ""
+                    add_system_log(
+                        f"[SpotBot] {c['coin']} {c['reason']} | PnL {sign}{c['pnl']:.4f} USDT",
+                        "success" if c["pnl"] >= 0 else "warning"
+                    )
+        except Exception as e:
+            pass
+        _time.sleep(10)
+
 @app.on_event("startup")
 async def startup_event():
     # 啟動 6:00 AM 定時器
     threading.Thread(target=daily_reset_daemon, daemon=True).start()
-
-from fastapi.responses import HTMLResponse
+    # 現貨 SL/TP 監控
+    threading.Thread(target=_spot_sltp_daemon, daemon=True).start()
+    # 後端重啟後自動恢復機器人
+    from services.bot_manager_service import auto_restore_bot_on_startup
+    auto_restore_bot_on_startup()
 
 @app.get("/")
 def read_root():
     with open("index.html", "r", encoding="utf-8") as f:
         content = f.read()
-    response = HTMLResponse(content=content)
+    response = HTMLResponse(content=content, media_type="text/html; charset=utf-8")
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
@@ -107,6 +133,7 @@ def api_get_bot_status():
     status = get_bot_status()
     if is_paper_trading():
         status["balance_quote"] = get_paper_balance()
+        status["session_start_balance"] = get_session_start_balance()
     else:
         # 實盤餘額的取得可放在 binance_service，為簡化先保留原本邏輯(這部分會用到 binance_service，為快速先這樣)
         pass 
@@ -122,17 +149,27 @@ def api_set_bot_symbol(symbol: str):
     active_symbol = set_bot_symbol(symbol)
     return {"status": "success", "active_symbol": active_symbol}
 
-from pydantic import BaseModel
-from typing import List
-
 class WatchSymbolsReq(BaseModel):
     symbols: List[str]
 
+class ActiveSymbolsReq(BaseModel):
+    symbols: List[str]
+
 @app.post("/api/bot-status/set-symbols")
-def api_set_bot_watch_symbols(req: WatchSymbolsReq):
+def api_set_bot_symbols(req: ActiveSymbolsReq):
     try:
-        symbols = set_bot_watch_symbols(req.symbols)
-        return {"status": "success", "watch_symbols": symbols}
+        symbols = set_bot_symbol(req.symbols)
+        # Also update watch symbols with the first 5 for backward compatibility if needed
+        set_bot_watch_symbols(symbols)
+        return {"status": "success", "active_symbols": symbols}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/bot-status/set-active-symbols")
+def api_set_active_symbols(req: ActiveSymbolsReq):
+    try:
+        symbols = set_bot_symbol(req.symbols)
+        return {"status": "success", "active_symbols": symbols}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -148,10 +185,29 @@ def api_set_bot_amount(amount: float):
 def api_get_logs():
     return get_system_logs()
 
+@app.get("/api/sl-states")
+def api_sl_states():
+    return bot_status.get("sl_states", {})
+
+@app.get("/api/trend-bias")
+def api_trend_bias():
+    return bot_status.get("trend_bias", {})
+
 @app.get("/api/radar/scan")
 def api_radar_scan():
     try:
         return trigger_manual_radar()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/radar/atr-rank")
+def api_radar_atr_rank():
+    try:
+        from services.binance_service import get_atr_ranked_coins
+        from services.radar_service import BLACKLIST
+        scan_pool = [s for s in CORE_SYMBOLS if s not in BLACKLIST]
+        selected, full_ranking = get_atr_ranked_coins(scan_pool, limit=RADAR_SELECT_COUNT)
+        return {"success": True, "selected": selected, "ranking": full_ranking}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -177,8 +233,6 @@ def api_get_all_prices():
         return {"status": "success", "data": prices}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/position/{symbol}")
 
 @app.get("/api/positions")
 def api_get_all_positions():
@@ -256,6 +310,24 @@ def api_market_sell(symbol: str):
             return {"status": "success", "order": order}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"平倉失敗: {str(e)}")
+
+@app.post("/api/order/close-all")
+def api_close_all_orders():
+    try:
+        force_close_all_positions()
+        return {"status": "success", "detail": "已強制平倉所有持有部位"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"一鍵平倉失敗: {str(e)}")
+
+
+@app.post("/api/paper-state/reset")
+def api_reset_paper_state(balance: float = 150.0):
+    try:
+        reset_paper_state(balance)
+        return {"status": "success", "detail": f"紙交易狀態已重置為 {balance} USDT"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"紙交易重置失敗: {str(e)}")
+
 
 @app.get("/api/exchangerate/usdtwd")
 def api_get_usd_twd():
@@ -417,12 +489,305 @@ def api_chat(chat_msg: ChatMessage):
         except:
             status["klines"] = "獲取 K 線失敗"
             status["prices"] = []
-            
+        
+        reply = f"收到您的訊息: {chat_msg.message}"
         return {"status": "success", "reply": reply}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/history/summary")
+def api_history_summary():
+    try:
+        if not os.path.exists("paper_state.json"):
+            return {"summaries": []}
+        tz = pytz.timezone('Asia/Taipei')
+        with open("paper_state.json", "r") as f:
+            state = json.load(f)
+        trades = state.get("trades", [])
+        daily = {}
+        for t in trades:
+            dt = datetime.datetime.fromtimestamp(t["time"] / 1000, tz=tz)
+            date_key = dt.strftime("%Y-%m-%d")
+            entry = daily.setdefault(date_key, {"trades": 0, "pnl": 0.0, "fee": 0.0})
+            entry["trades"] += 1
+            if t.get("is_close") and t.get("realized_pnl"):
+                entry["pnl"] += t["realized_pnl"]
+            
+            # 手續費加總 (支援相容舊紀錄)
+            fee = t.get("fee", (t["price"] * abs(t["qty"])) * 0.0005)
+            entry["fee"] += fee
+
+        # 將 fee 也回傳，並將 pnl 扣除 fee
+        summaries = [{"date": k, "trades": v["trades"], "fee": round(v["fee"], 4), "pnl": round(v["pnl"] - v["fee"], 4)} for k, v in sorted(daily.items(), reverse=True)]
+        return {"summaries": summaries}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/history/download/{date}")
+def api_history_download(date: str):
+    try:
+        if not os.path.exists("paper_state.json"):
+            raise HTTPException(status_code=404, detail="無交易紀錄")
+        with open("paper_state.json", "r") as f:
+            state = json.load(f)
+        trades = state.get("trades", [])
+        tz = pytz.timezone('Asia/Taipei')
+        filtered = [t for t in trades if datetime.datetime.fromtimestamp(t["time"] / 1000, tz=tz).strftime("%Y-%m-%d") == date]
+        if not filtered:
+            raise HTTPException(status_code=404, detail=f"日期 {date} 無交易紀錄")
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["時間", "幣種", "方向", "價格", "數量", "手續費", "已實現損益", "平倉"])
+        for t in filtered:
+            ts = datetime.datetime.fromtimestamp(t["time"] / 1000, tz=tz).strftime("%Y-%m-%d %H:%M:%S")
+            side = "買入(多)" if t.get("isBuyer") and not t.get("is_close") else \
+                   "賣出(平多)" if not t.get("isBuyer") and t.get("is_close") else \
+                   "賣出(空)" if not t.get("isBuyer") and not t.get("is_close") else \
+                   "買入(平空)"
+            
+            fee = t.get("fee", (t.get("price", 0) * abs(t.get("qty", 0))) * 0.0005)
+            # 將單筆的 realized_pnl 扣除手續費，確保整欄加總等於總淨利潤
+            net_pnl = t.get("realized_pnl", 0) - fee
+
+            writer.writerow([
+                ts,
+                t.get("symbol", "").replace(":USDT", ""),
+                side,
+                t.get("price", ""),
+                t.get("qty", ""),
+                round(fee, 6),
+                round(net_pnl, 6),
+                "是" if t.get("is_close") else "否"
+            ])
+        
+        from fastapi.responses import StreamingResponse
+        # Add UTF-8 BOM (\ufeff) so Excel correctly recognizes the encoding for Chinese characters
+        csv_content = "\ufeff" + output.getvalue()
+        return StreamingResponse(
+            iter([csv_content]),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename=trades_{date}.csv"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/coin/{symbol}/toggle")
+def api_toggle_coin(symbol: str):
+    from services.bot_manager_service import toggle_coin_disabled
+    return toggle_coin_disabled(symbol)
+
+
+@app.get("/api/coin-profiles")
+def api_get_coin_profiles():
+    try:
+        import ast, re
+        src_path = os.path.join(os.path.dirname(__file__), "heavy_dual_shot_core.py")
+        with open(src_path, "r", encoding="utf-8") as f:
+            src = f.read()
+        # 找 COIN_PROFILE_CONFIG = { ... \n} 區塊，支援尾隨逗號
+        m = re.search(r'COIN_PROFILE_CONFIG\s*=\s*\{(.*?)\n\}', src, re.DOTALL)
+        if m:
+            # 用 ast.literal_eval 解析，補上括號
+            config = ast.literal_eval('{' + m.group(1) + '}')
+            return config
+        return {}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/open-orders")
+def get_open_orders(symbol: str):
+    try:
+        orders = client.futures_get_open_orders(symbol=symbol)
+        return {"status": "success", "data": orders}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# ─────────────────────────────────────────────────────────────
+#  現貨轉換 (Spot Convert) API
+# ─────────────────────────────────────────────────────────────
+from services.spot_service import (
+    get_state        as spot_get_state,
+    get_balances     as spot_get_balances,
+    get_history      as spot_get_history,
+    get_open_trades  as spot_get_open_trades,
+    get_spot_price,
+    get_quote        as spot_get_quote,
+    execute_convert  as spot_execute_convert,
+    register_open_trade,
+    check_sltp,
+    reset_spot, SUPPORTED_COINS,
+)
+
+@app.get("/spot")
+def spot_page():
+    return FileResponse("spot.html")
+
+@app.get("/api/spot/coins")
+def api_spot_coins():
+    return {"coins": SUPPORTED_COINS}
+
+@app.get("/api/spot/balance")
+def api_spot_balance():
+    state    = spot_get_state()
+    balances = state.get("balances", {})
+    avg_p    = state.get("avg_prices", {})
+    prices   = {}
+    for coin in list(SUPPORTED_COINS) + list(balances.keys()):
+        if coin not in prices:
+            p = get_spot_price(coin, client)
+            prices[coin] = p if p else (1.0 if coin == "USDT" else 0.0)
+    return {"balances": balances, "prices": prices, "avg_prices": avg_p}
+
+@app.get("/api/spot/quote")
+def api_spot_quote(from_coin: str, to_coin: str, amount: float):
+    return spot_get_quote(from_coin, to_coin, amount, client)
+
+class SpotConvertRequest(BaseModel):
+    from_coin: str
+    to_coin: str
+    amount: float
+    action: str = "convert"
+
+@app.post("/api/spot/convert")
+def api_spot_convert(req: SpotConvertRequest):
+    return spot_execute_convert(req.from_coin, req.to_coin, req.amount, client, req.action)
+
+class SpotBuyRequest(BaseModel):
+    coin: str
+    usdt_amount: float
+    sl_pct:    float = 0.0   # 0 = no SL/TP monitoring
+    tp_pct:    float = 0.0
+    trail_pct: float = 1.5
+
+@app.post("/api/spot/buy")
+def api_spot_buy(req: SpotBuyRequest):
+    result = spot_execute_convert("USDT", req.coin, req.usdt_amount, client, "buy")
+    if result["success"] and (req.sl_pct > 0 or req.tp_pct > 0):
+        entry = result["trade"]["to_price_usdt"]
+        qty   = result["trade"]["to_amount"]
+        register_open_trade(req.coin, qty, entry, req.sl_pct, req.tp_pct, req.trail_pct)
+    return result
+
+class SpotSellRequest(BaseModel):
+    coin: str
+    coin_amount: float
+
+@app.post("/api/spot/sell")
+def api_spot_sell(req: SpotSellRequest):
+    return spot_execute_convert(req.coin, "USDT", req.coin_amount, client, "sell")
+
+@app.get("/api/spot/open-trades")
+def api_spot_open_trades():
+    trades = spot_get_open_trades()
+    # Enrich with current prices
+    enriched = {}
+    for coin, t in trades.items():
+        price = get_spot_price(coin, client) or 0
+        pnl   = (price - t["entry_price"]) * t["qty"]
+        pnl_pct = (price - t["entry_price"]) / t["entry_price"] * 100 if t["entry_price"] else 0
+        enriched[coin] = {**t, "current_price": price, "pnl": pnl, "pnl_pct": pnl_pct}
+    return {"open_trades": enriched}
+
+@app.delete("/api/spot/open-trades/{coin}")
+def api_spot_close_trade(coin: str):
+    """Force close a monitored trade (market sell all)."""
+    from services.spot_service import get_balances as _gb
+    qty = _gb().get(coin, 0.0)
+    if qty <= 0:
+        return {"success": False, "error": "無持倉"}
+    result = spot_execute_convert(coin, "USDT", qty, client, "sell")
+    return result
+
+@app.get("/api/spot/history")
+def api_spot_history():
+    return {"history": spot_get_history()}
+
+class SpotResetRequest(BaseModel):
+    initial_usdt: float = 10000.0
+
+@app.post("/api/spot/reset")
+def api_spot_reset(req: SpotResetRequest):
+    return reset_spot(req.initial_usdt)
+
+
+SPOT_SIGNAL_COINS = [
+    "ETH","BNB","SOL","XRP","ADA","DOGE","DOT","LTC","LINK",
+    "SUI","AVAX","NEAR","APT","ARB","OP","INJ","HYPE","AAVE",
+]
+
+# Simple in-memory cache to avoid hammering Binance every call
+_signals_cache = {"data": {}, "ts": 0}
+
+def _compute_rsi(closes, period=14):
+    if len(closes) < period + 1:
+        return 50.0
+    gains, losses = 0.0, 0.0
+    for i in range(len(closes) - period, len(closes)):
+        d = closes[i] - closes[i-1]
+        if d >= 0: gains += d
+        else: losses -= d
+    rs = gains / max(losses, 1e-8)
+    return 100.0 - 100.0 / (1.0 + rs)
+
+def _compute_ema(closes, period):
+    k = 2.0 / (period + 1)
+    ema = closes[0]
+    for c in closes[1:]:
+        ema = c * k + ema * (1 - k)
+    return ema
+
+def _compute_macd_bull(closes):
+    if len(closes) < 26:
+        return True
+    fast = _compute_ema(closes, 12)
+    slow = _compute_ema(closes, 26)
+    fast2 = _compute_ema(closes[:-1], 12)
+    slow2 = _compute_ema(closes[:-1], 26)
+    return (fast - slow) > (fast2 - slow2)
+
+@app.get("/api/spot/signals")
+def api_spot_signals():
+    global _signals_cache
+    now = time.time()
+    if now - _signals_cache["ts"] < 25:   # cache for 25s
+        return {"success": True, "signals": _signals_cache["data"], "cached": True}
+    result = {}
+    for coin in SPOT_SIGNAL_COINS:
+        sym = coin + "USDT"
+        try:
+            klines = get_klines(sym, "5m", 60)
+            if not klines or len(klines) < 20:
+                continue
+            closes = [float(k["close"]) for k in klines]
+            rsi      = _compute_rsi(closes, 14)
+            macd_bull = _compute_macd_bull(closes)
+            price    = closes[-1]
+            sma20    = sum(closes[-20:]) / 20
+            if rsi > 52 and macd_bull:
+                trend = "long"
+            elif rsi < 48 and not macd_bull:
+                trend = "short"
+            else:
+                trend = "neutral"
+            result[coin] = {
+                "rsi":       round(rsi, 1),
+                "macd_bull": macd_bull,
+                "trend":     trend,
+                "price":     price,
+                "above_bb":  price > sma20,
+            }
+        except Exception:
+            pass
+    _signals_cache = {"data": result, "ts": now}
+    return {"success": True, "signals": result, "cached": False}
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8005)
 

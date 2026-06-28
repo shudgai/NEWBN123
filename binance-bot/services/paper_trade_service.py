@@ -6,6 +6,10 @@ from update_paper_state import update_paper_state
 from services.system_log_service import add_system_log
 
 PAPER_STATE_FILE = "paper_state.json"
+import sys
+# 測試環境隔離，避免單元測試污染實際紙交易數據
+if any("pytest" in x or "unittest" in x for x in sys.argv) or "pytest" in sys.modules or "unittest" in sys.modules:
+    PAPER_STATE_FILE = "test_paper_state.json"
 
 def get_paper_position(symbol: str, quote_asset: str, base_asset: str, paper_key: str):
     qty = 0.0
@@ -61,11 +65,30 @@ def get_paper_trades(symbol: str, paper_key: str):
             with open(PAPER_STATE_FILE, "r") as f:
                 state = json.load(f)
                 trades = state.get("trades", [])
+                if symbol == "ALL":
+                    result = list(reversed(trades))[:30]
+                    _enrich_trades_with_current_price(result, state)
+                    return result
                 symbol_trades = [t for t in trades if t.get("symbol") in (symbol, paper_key)]
-                return list(reversed(symbol_trades))[:15]
+                result = list(reversed(symbol_trades))[:15]
+                _enrich_trades_with_current_price(result, state)
+                return result
         except:
             return []
     return []
+
+def _enrich_trades_with_current_price(trades, state):
+    """為每筆交易補上 current_price (從即時報價)"""
+    for t in trades:
+        sym = t.get("symbol", "")
+        if not sym:
+            continue
+        try:
+            clean_sym = sym.replace(":USDT", "USDT")
+            price_data = get_price(clean_sym)
+            t["current_price"] = price_data.get("price", 0)
+        except:
+            t["current_price"] = 0
 
 def get_paper_balance():
     if os.path.exists(PAPER_STATE_FILE):
@@ -88,8 +111,7 @@ def market_buy(symbol: str, amount: float):
     
     bot_status = get_bot_status()
     if bot_status.get("is_running"):
-        add_system_log("♻️ 已手動加倉並自動重啟機器人...", "warning")
-        restart_bot()
+        add_system_log("♻️ 已手動加倉...", "warning")
         
     return {"orderId": "manual_paper", "executedQty": str(qty)}
 
@@ -104,8 +126,7 @@ def market_short(symbol: str, amount: float):
     
     bot_status = get_bot_status()
     if bot_status.get("is_running"):
-        add_system_log("♻️ 已手動加倉並自動重啟機器人...", "warning")
-        restart_bot()
+        add_system_log("♻️ 已手動加倉...", "warning")
         
     return {"orderId": "manual_paper", "executedQty": str(qty)}
 
@@ -139,11 +160,14 @@ def market_sell(symbol: str, paper_key: str):
             
             bot_status = get_bot_status()
             if bot_status.get("is_running"):
-                add_system_log("♻️ 已重置虛擬倉位並自動重啟機器人...", "warning")
-                restart_bot()
+                add_system_log("♻️ 已重置虛擬倉位...", "warning")
                 
             return f"模擬平倉成功！獲利 {pnl:.2f} USDT"
-    raise Exception("找不到虛擬倉位")
+        else:
+            add_system_log(f"🟡 {symbol} 已有倉位已平倉，無需操作", "warning")
+            return f"{symbol} 倉位已平倉"
+    add_system_log(f"🟡 {symbol} 無對應倉位紀錄", "warning")
+    return f"{symbol} 無倉位紀錄"
 
 def force_close_all_positions():
     """強制平倉所有持有部位 (每日重置使用)"""
@@ -175,6 +199,50 @@ def force_close_all_positions():
                 add_system_log(f"🧹 [每日淨空] 已強制平倉 {raw_sym}", "info")
             except Exception as e:
                 add_system_log(f"⚠️ [每日淨空] 平倉 {sym} 失敗: {e}", "danger")
+
+
+def reset_paper_state(starting_balance: float = 150.0):
+    """將 paper_state.json 重置為初始值，並回復起始資金。"""
+    bot_status = get_bot_status()
+    if bot_status.get("is_running"):
+        add_system_log("🧹 正在停止機器人以進行紙交易重置...", "warning")
+        try:
+            from services.bot_manager_service import kill_bot
+            kill_bot()
+        except Exception:
+            pass
+
+    state = {
+        "balance_usdt": float(starting_balance),
+        "session_start_balance": float(starting_balance),
+        "positions": {},
+        "trades": []
+    }
+    import fcntl
+    with open(PAPER_STATE_FILE, "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        json.dump(state, f, indent=4)
+        f.truncate()
+        fcntl.flock(f, fcntl.LOCK_UN)
+
+    add_system_log(f"🧹 紙交易狀態已重置為 {starting_balance} USDT，持倉與交易紀錄已清空。", "success")
+
+    if bot_status.get("is_running"):
+        add_system_log("♻️ 已重置紙交易狀態，將自動同步初始資金。", "warning")
+
+    return state
+
+
+def get_session_start_balance():
+    """回傳本次 session 的起始資金（reset 時記錄），預設 150.0。"""
+    if os.path.exists(PAPER_STATE_FILE):
+        try:
+            with open(PAPER_STATE_FILE, "r") as f:
+                state = json.load(f)
+                return float(state.get("session_start_balance", 150.0))
+        except:
+            pass
+    return 150.0
 
 
 def get_paper_positions():

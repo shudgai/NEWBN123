@@ -827,6 +827,14 @@
             });
 
             const calculateFreight = (weight, remark) => {
+                let amt = _calculateFreight(weight, remark);
+                if (amt > 0 && remark && remark.includes('+尾門')) {
+                    amt += 500;
+                }
+                return amt;
+            };
+
+            const _calculateFreight = (weight, remark) => {
                 const r = remark || '';
 
                 let vehicle = null;

@@ -252,7 +252,7 @@
 
                 <!-- Input Row (Moved to bottom) -->
                 <tr class="bg-blue-50 border-t-2 border-blue-200">
-                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.date" class="nav-input w-full border p-1" placeholder="日期" @focus="$event.target.select()"></td>
+                    <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" @change="formatNewDate" v-model.trim="newRow.date" class="nav-input w-full border p-1" placeholder="日期" @focus="$event.target.select()"></td>
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.bill_no" class="nav-input w-full border p-1" placeholder="帳單編號" @focus="$event.target.select()"></td>
                     <td><input list="client-names" autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" type="text" v-model.trim="newRow.client_name" class="nav-input w-full border p-1" placeholder="客戶" @focus="$event.target.select()"></td>
                     <td><input autocomplete="off" @keyup.enter="addRow" @keydown="handleArrowKeys" @input="isAmountManual = true" type="text" v-model.number="newRow.amount" class="nav-input w-full border p-1 text-right" placeholder="金額" @focus="$event.target.select()"></td>
@@ -526,6 +526,7 @@
             };
 
             const updateRow = async (row) => {
+                row.date = parseAndFormatDate(row.date);
                 try {
                     const payload = {
                         date: row.date,
@@ -841,6 +842,33 @@
                 return index >= min && index <= max;
             };
 
+            
+            const formatNewDate = () => {
+                newRow.value.date = parseAndFormatDate(newRow.value.date);
+            };
+
+            const parseAndFormatDate = (dateStr) => {
+                if (!dateStr || typeof dateStr !== 'string') return dateStr;
+                let m = null, d = null;
+                const slashMatch = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
+                if (slashMatch) {
+                    m = parseInt(slashMatch[1], 10);
+                    d = parseInt(slashMatch[2], 10);
+                } else if (/^\d{3,4}$/.test(dateStr)) {
+                    if (dateStr.length === 4) {
+                        m = parseInt(dateStr.substring(0, 2), 10);
+                        d = parseInt(dateStr.substring(2, 4), 10);
+                    } else if (dateStr.length === 3) {
+                        m = parseInt(dateStr.substring(0, 1), 10);
+                        d = parseInt(dateStr.substring(1, 3), 10);
+                    }
+                }
+                if (m !== null && d !== null && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+                    return `${m}月${d}日`;
+                }
+                return dateStr;
+            };
+
             const newRow = ref({
                 date: '115/05/04',
                 bill_no: '',
@@ -854,6 +882,14 @@
             });
 
             const calculateFreight = (weight, remark, client) => {
+                let amt = _calculateFreight(weight, remark, client);
+                if (amt > 0 && remark && remark.includes('+尾門')) {
+                    amt += 500;
+                }
+                return amt;
+            };
+
+            const _calculateFreight = (weight, remark, client) => {
                 const r = remark || '';
                 const c = client || '';
                 let isTypeA = c.includes('225') || c.includes('鴻天') || c.includes('639');

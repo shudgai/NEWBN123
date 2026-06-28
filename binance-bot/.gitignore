@@ -1,5 +1,8 @@
 venv/
 __pycache__/
+*.pyc
 .env
-paper_state.json
+api_b64.txt
 *.log
+.DS_Store
+.claude/

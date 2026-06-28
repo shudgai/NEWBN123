@@ -1,0 +1,42 @@
+[
+    {
+        "timestamp": "2026-06-28 23:15:22",
+        "symbol": "SOLUSDT",
+        "entry_reason": "UNKNOWN",
+        "exit_reason": "[小虧] [Time_Decay_Stop]",
+        "profit_pct": -0.005,
+        "max_profit_reached": 0.0,
+        "atr_at_exit": 0.252857,
+        "market_mode": "High_Vol",
+        "expected_entry": 70.354805,
+        "expected_exit": 70.71,
+        "actual_entry": 70.354805,
+        "actual_exit": 70.71,
+        "fees": 0.0,
+        "qty": 5.36,
+        "slippage": 0.0,
+        "friction_rate": 0.0,
+        "theoretical_profit": 0.005,
+        "ai_summary": "[小虧] SOLUSDT 透過 [小虧] [Time_Decay_Stop] 出場。獲利 -0.50%，摩擦力 0.00%。"
+    },
+    {
+        "timestamp": "2026-06-28 23:17:02",
+        "symbol": "INJUSDT",
+        "entry_reason": "UNKNOWN",
+        "exit_reason": "[微利] [Time_TP]",
+        "profit_pct": 0.0021,
+        "max_profit_reached": 0.0,
+        "atr_at_exit": 0.026643,
+        "market_mode": "High_Vol",
+        "expected_entry": 4.549724,
+        "expected_exit": 4.54,
+        "actual_entry": 4.549724,
+        "actual_exit": 4.54,
+        "fees": 0.0,
+        "qty": 82.9,
+        "slippage": 0.0,
+        "friction_rate": 0.0,
+        "theoretical_profit": -0.0021,
+        "ai_summary": "[微利] INJUSDT 透過 [微利] [Time_TP] 出場。獲利 0.21%，摩擦力 0.00%。"
+    }
+]

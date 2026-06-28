@@ -1061,6 +1061,9 @@
             };
 
             const addRow = async () => {
+                if (newRow.value.date) {
+                    newRow.value.date = parseAndFormatDate(newRow.value.date);
+                }
                 if (!newRow.value.client_name) {
                     alert('請填寫客戶名稱');
                     return;
@@ -1117,7 +1120,7 @@
                         newRow.value.amount = null;
                         newRow.value.pieces = null;
                         newRow.value.weight = null;
-                        newRow.value.location = '';
+                        // newRow.value.location = '';
                         newRow.value.remark = '';
                         isAmountManual.value = false;
                         

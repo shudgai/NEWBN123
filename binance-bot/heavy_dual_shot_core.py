@@ -162,10 +162,10 @@ COIN_PROFILE_CONFIG = {
     # ══════════════════════════════════════════════════════════════════════
 
     # ETH｜穩定基石 — 最高流動性，跟隨宏觀，低槓桿穩打；寧等強訊號不貿然進
-    "ETHUSDT":  {"sl_atr_multiplier": 2.0, "tp_atr_multiplier": 10.0, "volume_threshold_factor": 1.0, "breakeven_trigger": 0.35, "min_flip_time": 1800, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 3, "rr_threshold": 2.0, "min_signal_strength": 17.0},
+    "ETHUSDT":  {"sl_atr_multiplier": 2.5, "tp_atr_multiplier": 10.0, "volume_threshold_factor": 1.0, "breakeven_trigger": 0.35, "min_flip_time": 1800, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 3, "rr_threshold": 2.0, "min_signal_strength": 17.0},
 
     # SOL｜趨勢旗艦 — 生態系龍頭，趨勢確認後動能強；硬停損守住不爆倉
-    "SOLUSDT":  {"sl_atr_multiplier": 2.5, "tp_atr_multiplier": 9.0,  "volume_threshold_factor": 1.0, "breakeven_trigger": 0.35, "min_flip_time": 3600, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 4, "rr_threshold": 1.8, "min_signal_strength": 18.0, "disable_rescue_dca": True, "hard_sl_pct": 0.012},
+    "SOLUSDT":  {"sl_atr_multiplier": 3.0, "tp_atr_multiplier": 9.0,  "volume_threshold_factor": 1.0, "breakeven_trigger": 0.35, "min_flip_time": 3600, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 4, "rr_threshold": 1.8, "min_signal_strength": 18.0, "disable_rescue_dca": True, "hard_sl_pct": 0.015},
 
     # AVAX｜均衡生態 — 中等流動性L1，跟大盤趨勢；寬於ETH但不躁進
     "AVAXUSDT": {"sl_atr_multiplier": 2.5, "tp_atr_multiplier": 10.0, "volume_threshold_factor": 1.0, "breakeven_trigger": 0.35, "min_flip_time": 1800, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 3, "rr_threshold": 2.0, "min_signal_strength": 17.0},
@@ -180,11 +180,11 @@ COIN_PROFILE_CONFIG = {
     "AAVEUSDT": {"sl_atr_multiplier": 2.5, "tp_atr_multiplier": 12.0, "volume_threshold_factor": 1.1, "breakeven_trigger": 0.5, "min_flip_time": 1800, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 3, "rr_threshold": 1.8, "min_signal_strength": 16.0, "trailing_activation_atr": 1.5, "trailing_distance_atr": 0.8},
 
     # BNBUSDT / XRPUSDT / DOTUSDT / LTCUSDT / LINKUSDT — 保留原設定
-    "BNBUSDT":  {"sl_atr_multiplier": 2.5, "tp_atr_multiplier": 10.0, "volume_threshold_factor": 1.0, "breakeven_trigger": 0.35, "min_flip_time": 1800, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 4, "rr_threshold": 2.0, "min_signal_strength": 17.0},
-    "XRPUSDT":  {"sl_atr_multiplier": 2.5, "tp_atr_multiplier": 10.0, "volume_threshold_factor": 1.1, "breakeven_trigger": 0.35, "min_flip_time": 1800, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 4, "rr_threshold": 2.0, "min_signal_strength": 18.5, "disable_rescue_dca": True, "hard_sl_pct": 0.012},
+    "BNBUSDT":  {"sl_atr_multiplier": 3.0, "tp_atr_multiplier": 10.0, "volume_threshold_factor": 1.0, "breakeven_trigger": 0.35, "min_flip_time": 1800, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 4, "rr_threshold": 2.0, "min_signal_strength": 17.0},
+    "XRPUSDT":  {"sl_atr_multiplier": 3.0, "tp_atr_multiplier": 10.0, "volume_threshold_factor": 1.1, "breakeven_trigger": 0.35, "min_flip_time": 1800, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 4, "rr_threshold": 2.0, "min_signal_strength": 18.5, "disable_rescue_dca": True, "hard_sl_pct": 0.012},
     "DOTUSDT":  {"sl_atr_multiplier": 2.5, "tp_atr_multiplier": 10.0, "volume_threshold_factor": 1.0, "breakeven_trigger": 0.35, "min_flip_time": 1800, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 4, "rr_threshold": 2.0, "min_signal_strength": 17.0},
     "LTCUSDT":  {"sl_atr_multiplier": 2.5, "tp_atr_multiplier": 10.0, "volume_threshold_factor": 1.0, "breakeven_trigger": 0.35, "min_flip_time": 1800, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 4, "rr_threshold": 2.0, "min_signal_strength": 17.0},
-    "LINKUSDT": {"sl_atr_multiplier": 2.5, "tp_atr_multiplier": 14.0, "volume_threshold_factor": 1.1, "breakeven_trigger": 0.35, "min_flip_time": 1800, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 4, "rr_threshold": 2.0, "min_signal_strength": 18.5, "disable_rescue_dca": True, "hard_sl_pct": 0.012},
+    "LINKUSDT": {"sl_atr_multiplier": 3.0, "tp_atr_multiplier": 14.0, "volume_threshold_factor": 1.1, "breakeven_trigger": 0.35, "min_flip_time": 1800, "mtf_filter": True,  "profile_type": "Core_Trend",         "leverage": 4, "rr_threshold": 2.0, "min_signal_strength": 18.5, "disable_rescue_dca": True, "hard_sl_pct": 0.012},
 
     # ══════════════════════════════════════════════════════════════════════
     # 第二類：高彈性動能型 — 波動大、追蹤停利是命脈、單次報酬高
@@ -4232,11 +4232,12 @@ def is_entry_allowed(sym, side, route="Standard", strength=0.0):
     # =========================================================================
     if route not in ("Exhaustion_Entry", "Extreme_Reversal", "Automatic_Reverse"):
         _tb_score_gate = s.get("trend_bias_score", 0)
-        if side == "buy" and _tb_score_gate <= -2:
-            print(f"🛑 [TrendBias_Gate] {sym} trend_bias_score={_tb_score_gate:+d}，趨勢偏空，拒絕做多 (Route:{route})")
+        # score 永遠是偶數 (0, ±2, ±4)，中性(0)時不進場，只在明確趨勢方向才開倉
+        if side == "buy" and _tb_score_gate <= 0:
+            print(f"🛑 [TrendBias_Gate] {sym} trend_bias_score={_tb_score_gate:+d}，趨勢不偏多，拒絕做多 (Route:{route})")
             return False
-        if side == "sell" and _tb_score_gate >= 2:
-            print(f"🛑 [TrendBias_Gate] {sym} trend_bias_score={_tb_score_gate:+d}，趨勢偏多，拒絕做空 (Route:{route})")
+        if side == "sell" and _tb_score_gate >= 0:
+            print(f"🛑 [TrendBias_Gate] {sym} trend_bias_score={_tb_score_gate:+d}，趨勢不偏空，拒絕做空 (Route:{route})")
             return False
 
     # =========================================================================

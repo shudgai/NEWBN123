@@ -11,7 +11,7 @@ class WaybillController extends Controller
     public function index(Request $request)
     {
         $clientCode = $request->query('client_code', '206');
-        return response()->json(Waybill::where('client_code', $clientCode)->orderBy('id', 'asc')->get());
+        return response()->json(Waybill::where('client_code', $clientCode)->orderByRaw('COALESCE(sort_order, id) ASC')->orderBy('id', 'asc')->get());
     }
 
     public function store(Request $request)
@@ -29,6 +29,7 @@ class WaybillController extends Controller
             'client_code' => 'nullable|string',
             'forklift_fee' => 'nullable|integer',
             'styles' => 'nullable|array',
+            'sort_order' => 'nullable|numeric',
         ]);
 
         $waybill = Waybill::create($validated);
@@ -53,6 +54,7 @@ class WaybillController extends Controller
             'client_code' => 'nullable|string',
             'forklift_fee' => 'nullable|integer',
             'styles' => 'nullable|array',
+            'sort_order' => 'nullable|numeric',
         ]);
 
         $waybill->update($validated);

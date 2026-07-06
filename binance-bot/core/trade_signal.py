@@ -1,6 +1,9 @@
+import logging
 import time
 import numpy as np
 from core import ctx
+
+logger = logging.getLogger(__name__)
 
 
 def update_trade_signal(sym, trade):
@@ -66,18 +69,21 @@ def update_trade_signal(sym, trade):
         if rt_profit > s.get("highest_profit_pct", 0.0):
             s["highest_profit_pct"] = rt_profit
 
-        if rt_profit >= 0.003 and not s.get("is_breakeven_locked", False):
+        # 觸發門檻原本 0.3% 太緊，獲利才剛冒頭一點點就把停損鎖在成本價附近，
+        # 稍微一回檔就被打到、幾乎打平出場（勉強打平甚至不夠付手續費），倉位
+        # 根本沒機會真正發展出有意義的獲利。拉高到 1.0% 才觸發保本鎖定。
+        if rt_profit >= 0.010 and not s.get("is_breakeven_locked", False):
             _buf = 0.003
-            _be = avg_p * (1 + _buf)
+            _be = avg_p * (1 + _buf) if _is_long else avg_p * (1 - _buf)
             _sl_now = s.get("stop_loss", 0)
             if _is_long and (_sl_now == 0 or _be > _sl_now):
                 s["stop_loss"] = _be
                 s["is_breakeven_locked"] = True
-                print(f"⚡ [即時保本] {sym} 即時達到 {rt_profit*100:.2f}%，SL 鎖定 {_be:.4f}")
+                logger.info(f"⚡ [即時保本] {sym} 即時達到 {rt_profit*100:.2f}%，SL 鎖定 {_be:.4f}")
             elif not _is_long and (_sl_now == 0 or _be < _sl_now):
                 s["stop_loss"] = _be
                 s["is_breakeven_locked"] = True
-                print(f"⚡ [即時保本] {sym} 即時達到 {rt_profit*100:.2f}%，SL 鎖定 {_be:.4f}")
+                logger.info(f"⚡ [即時保本] {sym} 即時達到 {rt_profit*100:.2f}%，SL 鎖定 {_be:.4f}")
 
         # ── TrailTP 即時同步至 stop_loss（每個 trade tick 執行）──
         _atr_rt = s.get("current_atr", 0.0)

@@ -21,15 +21,48 @@ class MergeExcelController extends Controller
     public function merge(Request $request)
     {
         $request->validate([
-            'files'   => 'required|array|min:1',
-            'files.*' => 'required|file',
+            'files'   => 'nullable|array',
+            'files.*' => 'file',
+            'temp_files' => 'nullable|array',
             'mode'    => 'required|in:single,multi',
         ]);
 
-        $files  = $request->file('files');
         $mode   = $request->input('mode', 'single');
         $skipHeader = $request->boolean('skip_header', true);
         $action = $request->input('action', 'download'); // 'download' or 'save'
+
+        $tempFiles = $request->input('temp_files', []);
+        $files = [];
+
+        if ($request->hasFile('files')) {
+            $files = $request->file('files');
+        } elseif (!empty($tempFiles)) {
+            foreach ($tempFiles as $tempFile) {
+                $tempFile = basename($tempFile);
+                $filePath = storage_path('app/temp/' . $tempFile);
+                if (file_exists($filePath)) {
+                    $files[] = new class($filePath, $tempFile) {
+                        private $path;
+                        private $originalName;
+                        public function __construct($path, $tempName) {
+                            $this->path = $path;
+                            $parts = explode('_', $tempName, 3);
+                            $this->originalName = isset($parts[2]) ? $parts[2] : $tempName;
+                        }
+                        public function getPathname() {
+                            return $this->path;
+                        }
+                        public function getClientOriginalName() {
+                            return $this->originalName;
+                        }
+                    };
+                }
+            }
+        }
+
+        if (empty($files)) {
+            return response()->json(['message' => 'No files provided for merging.'], 400);
+        }
 
         $mergedSpreadsheet = new Spreadsheet();
 
@@ -622,7 +655,9 @@ class MergeExcelController extends Controller
         }
 
         // ── 寫出並回傳 ─────────────────────────────────────────────
-        $filename = '合併報表_' . now()->format('YmdHis') . '.xlsx';
+        $firstFile = reset($files);
+        $originalName = $firstFile->getClientOriginalName();
+        $filename = pathinfo($originalName, PATHINFO_FILENAME) . '.xlsx';
         $tempDir  = storage_path('app/temp');
 
         if (!file_exists($tempDir)) {
@@ -633,6 +668,40 @@ class MergeExcelController extends Controller
         $writer   = new Xlsx($mergedSpreadsheet);
         $writer->save($tempPath);
 
+        // Cleanup temp files if any
+        if (!empty($tempFiles)) {
+            foreach ($tempFiles as $tempFile) {
+                $tempFile = basename($tempFile);
+                $filePath = storage_path('app/temp/' . $tempFile);
+                if (file_exists($filePath)) {
+                    @unlink($filePath);
+                }
+            }
+        }
+
         return response()->download($tempPath, $filename)->deleteFileAfterSend(true);
+    }
+
+    public function uploadTemp(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file',
+        ]);
+
+        $file = $request->file('file');
+        $tempName = uniqid('merge_', true) . '_' . preg_replace('/[^a-zA-Z0-9_\-\.]/', '', $file->getClientOriginalName());
+        
+        $tempDir = storage_path('app/temp');
+        if (!file_exists($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        $file->move($tempDir, $tempName);
+
+        return response()->json([
+            'success' => true,
+            'temp_name' => $tempName,
+            'original_name' => $file->getClientOriginalName()
+        ]);
     }
 }

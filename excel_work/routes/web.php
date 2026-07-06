@@ -43,6 +43,7 @@ Route::get('/client/639', function () {
 
 Route::get('/merge-excel', [\App\Http\Controllers\MergeExcelController::class, 'index']);
 Route::post('/merge-excel', [\App\Http\Controllers\MergeExcelController::class, 'merge']);
+Route::post('/upload-temp', [\App\Http\Controllers\MergeExcelController::class, 'uploadTemp']);
 
 Auth::routes();
 

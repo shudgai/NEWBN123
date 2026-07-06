@@ -307,18 +307,46 @@
                 isSubmitting.value = true;
                 currentAction.value = actionType;
                 
-                const formData = new FormData();
-                files.value.forEach((file, index) => {
-                    formData.append(`files[${index}]`, file);
-                });
-                formData.append('mode', settings.value.mode);
-                formData.append('skip_header', settings.value.skipHeader ? '1' : '0');
-                formData.append('action', actionType);
-
                 // CSRF Token
                 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
                 try {
+                    // Upload all files one-by-one to get temp file names
+                    const tempFiles = [];
+                    for (let i = 0; i < files.value.length; i++) {
+                        const file = files.value[i];
+                        const uploadData = new FormData();
+                        uploadData.append('file', file);
+                        
+                        const uploadResponse = await fetch('/upload-temp', {
+                            method: 'POST',
+                            headers: {
+                                'X-CSRF-TOKEN': csrfToken || ''
+                            },
+                            body: uploadData
+                        });
+                        
+                        if (!uploadResponse.ok) {
+                            throw new Error(`上傳檔案 ${file.name} 失敗`);
+                        }
+                        
+                        const result = await uploadResponse.json();
+                        if (result.success) {
+                            tempFiles.push(result.temp_name);
+                        } else {
+                            throw new Error(`上傳檔案 ${file.name} 失敗: ` + (result.message || ''));
+                        }
+                    }
+
+                    // Send the merge request with temp_files
+                    const formData = new FormData();
+                    tempFiles.forEach((tempFile, index) => {
+                        formData.append(`temp_files[${index}]`, tempFile);
+                    });
+                    formData.append('mode', settings.value.mode);
+                    formData.append('skip_header', settings.value.skipHeader ? '1' : '0');
+                    formData.append('action', actionType);
+
                     const response = await fetch('/merge-excel', {
                         method: 'POST',
                         headers: {
@@ -328,7 +356,7 @@
                     });
 
                     if (!response.ok) {
-                        throw new Error('Server returned ' + response.status);
+                        throw new Error('伺服器合併失敗 (狀態碼 ' + response.status + ')');
                     }
 
                     if (actionType === 'save') {

@@ -1,3 +1,4 @@
+import logging
 import os
 import json
 import time
@@ -8,6 +9,8 @@ from core.config import (
     SYMBOL_REVERSAL_SETTINGS as _DEFAULT_SYMBOL_REVERSAL_SETTINGS,
 )
 import core.config as _config
+
+logger = logging.getLogger(__name__)
 
 # These are mutable module-level vars that get overridden by load_symbol_config
 SYMBOL_EXIT_OVERRIDES = dict(_DEFAULT_SYMBOL_EXIT_OVERRIDES)
@@ -70,7 +73,7 @@ def load_symbol_config():
         SYMBOL_REVERSAL_SETTINGS = reversal_settings
 
         try:
-            with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "strategy_config.json"), "r") as f:
+            with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "strategy_config.json"), "r") as f:
                 config = json.load(f)
                 priority_list = config.get("priority_symbols", [])
         except Exception:
@@ -91,7 +94,7 @@ def load_symbol_config():
     except FileNotFoundError:
         return list(DEFAULT_SYMBOLS), {}
     except Exception as e:
-        print(f"⚠️ 讀取幣種清單失敗: {e}")
+        logger.info(f"⚠️ 讀取幣種清單失敗: {e}")
         return list(DEFAULT_SYMBOLS), {}
 
 
@@ -110,7 +113,7 @@ def load_symbol_pool():
     except FileNotFoundError:
         return list(DEFAULT_SYMBOLS)
     except Exception as e:
-        print(f"⚠️ 讀取幣種清單失敗: {e}")
+        logger.info(f"⚠️ 讀取幣種清單失敗: {e}")
         return list(DEFAULT_SYMBOLS)
 
 
@@ -222,6 +225,19 @@ def get_effective_exit_setting(sym, key, base_value, is_long):
     return value
 
 
+def is_rescue_dca_disabled(sym) -> bool:
+    """判斷這個幣種是否該停用「救援攤平」(Rescue DCA，虧損時加碼攤平均價)。
+    原本 core/exits.py 是直接讀 COIN_PROFILE_CONFIG（寫死的靜態設定），完全沒看
+    SYMBOL_PROFILES（ATR 雷達動態選出的幣種寫進 bot_symbols.json 的個性設定）—
+    導致雷達動態選中、沒有寫在 COIN_PROFILE_CONFIG 裡的幣種（例如 BCHUSDT），
+    disable_rescue_dca 永遠讀不到、永遠預設可以救援攤平，即使虧損中也會繼續
+    加碼。動態個性優先，沒有才 fallback 回靜態設定。"""
+    profile = SYMBOL_PROFILES.get(sym)
+    if profile and "disable_rescue_dca" in profile:
+        return bool(profile["disable_rescue_dca"])
+    return bool(COIN_PROFILE_CONFIG.get(sym, {}).get("disable_rescue_dca", False))
+
+
 def get_dynamic_atr_multiplier(sym, base_multiplier):
     from core import ctx
     s = ctx.STATES.get(sym)
@@ -265,6 +281,12 @@ def apply_symbol_profile(sym, profile):
     ]:
         if key in profile:
             state[key] = profile[key]
+    # 雷達幣池的 profile（bot_symbols.json 的 "profiles" 區塊）用的欄位名稱是
+    # "hard_sl_pct"（跟 COIN_PROFILE_CONFIG 一致），不是上面迴圈裡的
+    # "hard_stop_loss_pct"，兩個名字對不起來會讓交易所實際掛的止損單讀不到
+    # 雷達幫這個幣種算出來的百分比，永遠退回全域預設值。
+    if "hard_sl_pct" in profile:
+        state["hard_stop_loss_pct"] = profile["hard_sl_pct"]
     state["personality"] = personality
     state["personality_source"] = personality_source
     if personality_source == "manual":
@@ -364,7 +386,7 @@ def update_dynamic_personality(sym):
             if key in coin_conf:
                 s[key] = coin_conf[key]
         volume_ratio, atr_pct, rsi, range_width_pct = measure_personality_traits(sym)
-        print(f"🔧 [動態個性] {sym} 由 {old_personality} 變更為 {new_personality} | vol={volume_ratio:.2f} atr_pct={atr_pct:.4f} rsi={rsi:.1f} range={range_width_pct:.3f}")
+        logger.info(f"🔧 [動態個性] {sym} 由 {old_personality} 變更為 {new_personality} | vol={volume_ratio:.2f} atr_pct={atr_pct:.4f} rsi={rsi:.1f} range={range_width_pct:.3f}")
         return True
     return False
 
@@ -395,7 +417,7 @@ def filter_valid_symbols(exchange, symbols):
         if found:
             valid.append(sym)
         else:
-            print(f"⚠️ [過濾無效幣種] 交易所目前不支援/已下架此幣種，已自動移出監聽清單: {sym}")
+            logger.info(f"⚠️ [過濾無效幣種] 交易所目前不支援/已下架此幣種，已自動移出監聽清單: {sym}")
     return valid
 
 

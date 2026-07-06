@@ -217,7 +217,7 @@
                     <th @click="sortBy('location')" style="width: 100px;" class="cursor-pointer hover:bg-gray-200 select-none">地點</th>
                     <th @click="sortBy('remark')" style="width: 150px;" class="cursor-pointer hover:bg-gray-200 select-none">備註</th>
                     <th style="width: 60px;" class="text-right">總重</th>
-                    <th style="width: 40px;" class="text-center">
+                    <th style="width: 60px;" class="text-center">
                         <input type="checkbox" @change="toggleAllSelection" :checked="isAllSelected" class="w-4 h-4 cursor-pointer align-middle" title="全選/取消全選">
                     </th>
                 </tr>
@@ -235,7 +235,11 @@
                     <td class="p-0 relative group" :class="{'fill-highlight': isFillHighlighted(index, 'remark')}" :style="getCellStyle(row, 7)"><input list="remark-options" autocomplete="off" @keydown="handleArrowKeys" @input="previewFreight(row)" @change="handleRemarkChange(row, index)" type="text" v-model.trim="row.remark" class="nav-input w-full p-1 bg-transparent border-0 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-400" @focus="$event.target.select()"><div class="fill-handle" @mousedown="startFill(index, 'remark', $event)"></div></td>
                     <td class="p-1 text-right text-blue-600 font-bold bg-gray-50 align-middle">@{{ getGroupTotalWeight(row) }}</td>
                     <td class="p-0 text-center align-middle relative group" :class="{'fill-highlight': isFillHighlighted(index, 'selected')}">
-                        <input type="checkbox" v-model="selectedRows" :value="row.id" class="w-4 h-4 cursor-pointer align-middle opacity-50 group-hover:opacity-100 transition-opacity" :class="{'opacity-100': selectedRows.includes(row.id)}">
+                        
+                        <div class="flex items-center justify-center gap-1 min-w-[50px] py-1">
+                            <input type="checkbox" v-model="selectedRows" :value="row.id" class="w-4 h-4 cursor-pointer align-middle opacity-50 group-hover:opacity-100 transition-opacity" :class="{'opacity-100': selectedRows.includes(row.id)}">
+                            <button @click="insertRowAfter(index)" class="opacity-0 group-hover:opacity-100 bg-green-500 hover:bg-green-600 text-white font-bold px-1.5 py-0.5 rounded text-xs shadow focus:outline-none transition-opacity duration-200" title="在此行下方插入新行">＋</button>
+                        </div>
                         <div class="fill-handle" @mousedown="startFill(index, 'selected', $event)"></div>
                     </td>
                 </tr>
@@ -835,7 +839,7 @@
             };
 
             const _calculateFreight = (weight, remark) => {
-                const r = remark || '';
+                const r = (remark || '').replace(/竹北/g, '新竹'); // 竹北以新竹計費
 
                 let vehicle = null;
                 if (r.match(/3\.49噸/)) vehicle = '3.49';
@@ -988,6 +992,56 @@
                 }
             };
 
+            const insertRowAfter = async (index) => {
+                const currentRow = tableData.value[index];
+                let newSortOrder;
+                
+                if (index === tableData.value.length - 1) {
+                    newSortOrder = (currentRow.sort_order || currentRow.id) + 1000;
+                } else {
+                    const nextRow = tableData.value[index + 1];
+                    const currentOrder = currentRow.sort_order || currentRow.id;
+                    const nextOrder = nextRow.sort_order || nextRow.id;
+                    newSortOrder = (currentOrder + nextOrder) / 2;
+                }
+                
+                const payload = {
+                    date: currentRow.date,
+                    bill_no: '',
+                    client_name: currentRow.client_name,
+                    amount: 0,
+                    pieces: 0,
+                    weight: 0,
+                    forklift_fee: 0,
+                    location: currentRow.location || '',
+                    remark: '',
+                    is_client_data: false,
+                    client_code: '225',
+                    sort_order: newSortOrder
+                };
+                
+                try {
+                    const response = await fetch('/api/waybills', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    if (response.ok) {
+                        const saved = await response.json();
+                        tableData.value.splice(index + 1, 0, saved.data);
+                    } else {
+                        throw new Error('Insert failed');
+                    }
+                } catch (error) {
+                    console.error("Error inserting row:", error);
+                    alert("插入失敗");
+                }
+            };
+
             const addRow = async () => {
                 if (newRow.value.date) {
                     newRow.value.date = parseAndFormatDate(newRow.value.date);
@@ -1044,6 +1098,9 @@
                         const savedClientName = newRow.value.client_name;
                         const savedRemark = newRow.value.remark;
 
+                        const saved = await response.json();
+                        tableData.value.push(saved.data);
+
                         newRow.value.bill_no = '';
                         newRow.value.amount = null;
                         newRow.value.pieces = null;
@@ -1051,8 +1108,6 @@
                         // newRow.value.location = '';
                         newRow.value.remark = '';
                         isAmountManual.value = false;
-                        
-                        await fetchData();
                         
                         if (isGrouped) {
                             // Find the newly added row and trigger recalculate
@@ -1748,6 +1803,7 @@
                 uniqueLocations,
                 newRow,
                 addRow,
+                insertRowAfter,
                 updateRow,
                 deleteRow,
                 handleArrowKeys,

@@ -24,7 +24,8 @@ class Waybill extends Model
         'styles',
         'tonnage',
         'truck_fee',
-        'pallet_recovery_fee'
+        'pallet_recovery_fee',
+        'sort_order'
     ];
 
     protected $casts = [

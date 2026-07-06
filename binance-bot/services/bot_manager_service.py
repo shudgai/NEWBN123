@@ -13,18 +13,22 @@ bot_status = {
     "balance_quote": 150.0,
     "active_orders": 0,
     "active_symbols": [],  # 現在改為陣列存放多個幣種 (主攻幣, 其實現在只支援單一運行)
-    "watch_symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT"], # 使用者自訂的關注幣種
+    "watch_symbols": [
+        "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT",
+        "SUIUSDT", "LINKUSDT", "AVAXUSDT", "XLMUSDT", "ADAUSDT",
+    ],
     "regime": "多幣種監控中",
     "coin_regimes": {},    # { symbol: regime }
     "trade_amount": 150.0,
+    "entry_diagnosis": "等待訊號",
 }
 
 bot_processes = {}  # {symbol: subprocess.Popen}
-SYMBOL_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bot_symbols.json")
-BOT_STATE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bot_running_state.json")
+SYMBOL_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot_symbols.json")
+BOT_STATE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "bot_running_state.json")
 DEFAULT_SYMBOLS = [
-    "SOLUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT",
-    "LINKUSDT", "SUIUSDT", "INJUSDT", "NEARUSDT"
+    "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT",
+    "SUIUSDT", "LINKUSDT", "AVAXUSDT", "XLMUSDT", "ADAUSDT",
 ]
 
 
@@ -52,15 +56,27 @@ def normalize_symbol_list(symbols, max_count=20):
     return seen[:max_count]
 
 
+def _filter_disabled_symbols(symbols):
+    from core.config import COIN_PROFILE_CONFIG
+    filtered = []
+    for sym in symbols:
+        if COIN_PROFILE_CONFIG.get(sym, {}).get("disable_entry", False):
+            continue
+        filtered.append(sym)
+    return filtered
+
+
 def load_symbol_config():
     try:
         with open(SYMBOL_CONFIG_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
-            return normalize_symbol_list(data.get("symbols", []))
-        return normalize_symbol_list(data)
+            symbols = normalize_symbol_list(data.get("symbols", []))
+        else:
+            symbols = normalize_symbol_list(data)
+        return _filter_disabled_symbols(symbols)
     except Exception:
-        return list(DEFAULT_SYMBOLS)
+        return _filter_disabled_symbols(list(DEFAULT_SYMBOLS))
 
 
 def load_symbol_profiles():
@@ -133,19 +149,20 @@ def toggle_coin_disabled(symbol: str) -> dict:
 
 def get_bot_status():
     from services.paper_trade_service import get_paper_balance
+    from core.config import PAPER_TRADING
     import os
     import json
-    from dotenv import load_dotenv
-    
-    load_dotenv()
-    if os.getenv("TRADING_MODE", "paper") == "paper":
+
+    # 改用 core.config.PAPER_TRADING（跟實際下單邏輯同一個判斷依據），
+    # 不要再看 TRADING_MODE 這個沒被設定過的環境變數，避免切了真實交易後面板還顯示紙上餘額。
+    if PAPER_TRADING:
         bot_status["balance_quote"] = get_paper_balance()
-        
+
         # Calculate total realized PNL from paper_state.json
         try:
             total_realized = 0.0
             total_fees = 0.0
-            state_path = os.path.join(os.path.dirname(__file__), "..", "paper_state.json")
+            state_path = os.path.join(os.path.dirname(__file__), "..", "data", "paper_state.json")
             if os.path.exists(state_path):
                 with open(state_path, "r") as f:
                     state = json.load(f)
@@ -158,7 +175,32 @@ def get_bot_status():
             bot_status["total_realized_pnl"] = total_realized - total_fees
         except Exception as e:
             bot_status["total_realized_pnl"] = 0.0
-        
+
+        # 單次自動交易金額跟著複利調整（紙上餘額本身就已經是本金+累計損益，
+        # 直接拿來當交易金額即可），道理跟下面實盤那段一樣：虧損就縮水、獲利就變大。
+        bot_status["trade_amount"] = max(bot_status["balance_quote"], 10.0)
+    else:
+        try:
+            from services.binance_service import get_total_realized_pnl_usdt
+            bot_status["total_realized_pnl"] = get_total_realized_pnl_usdt()
+        except Exception:
+            bot_status["total_realized_pnl"] = 0.0
+        try:
+            # 用 API 進程自己直接查詢，不依賴 core.balance.REAL_BALANCE
+            # （那是 main.py 進程內的模組全域變數，API 是另一個進程看不到它的更新）。
+            from services.binance_service import get_account_balance_usdt
+            from core.config import LIVE_CAPITAL_CAP
+            real_balance = get_account_balance_usdt()
+            if real_balance is not None and real_balance > 0:
+                pnl = bot_status.get("total_realized_pnl", 0.0)
+                display_balance = (min(real_balance, LIVE_CAPITAL_CAP) if LIVE_CAPITAL_CAP else real_balance) + pnl
+                bot_status["balance_quote"] = display_balance
+                bot_status["trade_amount"] = max(display_balance, 10.0)
+            else:
+                print(f"[BotStatus] 取得實盤餘額失敗或回傳無效值，保留先前餘額 {bot_status.get('balance_quote', 0)}")
+        except Exception:
+            pass
+
     # 每次都從 bot_symbols.json 讀取最新幣種清單，確保前端即時同步
     try:
         actual_symbols = load_symbol_config()
@@ -169,6 +211,21 @@ def get_bot_status():
     except Exception:
         pass
 
+    # 跟隨模式下，介面顯示的幣池要跟來源部署完全一致；本地因「持倉保護」多
+    # 加回的幣種（本地有真倉但來源清單沒選到）仍在背景由 ctx.ALL_SYMBOLS
+    # 繼續做出場管理，只是不列在畫面上，避免看起來兩邊選幣邏輯跑掉了。
+    try:
+        follow_source = os.getenv("FOLLOW_SYMBOLS_FROM", "").strip()
+        if follow_source and os.path.exists(follow_source):
+            with open(follow_source, "r", encoding="utf-8") as f:
+                source_data = json.load(f)
+            source_symbols = source_data.get("symbols", []) if isinstance(source_data, dict) else source_data
+            if source_symbols:
+                bot_status["active_symbols"] = source_symbols
+                bot_status["watch_symbols"] = source_symbols
+    except Exception:
+        pass
+
     return bot_status
 
 def set_bot_balance_quote(balance: float):
@@ -176,6 +233,10 @@ def set_bot_balance_quote(balance: float):
 
 def update_bot_status(key, value):
     bot_status[key] = value
+
+def set_entry_diagnosis(message: str):
+    bot_status["entry_diagnosis"] = message
+
 
 def read_bot_output(proc, sym):
     for line in iter(proc.stdout.readline, ''):
@@ -215,7 +276,7 @@ def read_bot_output(proc, sym):
                 add_system_log(line.replace("@@COIN_DEBUG@@", "").strip(), "info")
             else:
                 # 過濾掉每輪掃描的 debug 雜訊（🔍 條件檢測），只保留有意義的事件
-                _skip_prefixes = ("🔍", "[__multi__] 🔍", "----")
+                _skip_prefixes = ("🔍", "[__multi__]", "[__multi__] 🔍", "----")
                 if any(line.startswith(p) for p in _skip_prefixes):
                     pass  # 靜默丟棄，不送 web log
                 else:
@@ -247,7 +308,9 @@ def read_bot_output(proc, sym):
         # 無論退出碼為何，只要 bot_status["is_running"] 為 True，就必須重啟
         # (退出碼 0 可能是因為防禦分流、或不可預期的 CancelledError 導致)
         if proc.returncode == 0:
-            add_system_log(f"ℹ️ [防禦分流] {sym} 正常退出 (exit 0)，將在 5 秒後重試檢查...", "info")
+            # 只在調試模式下記錄，避免頁面被重複重啟訊息刷爆。
+            if os.getenv("BOT_DEBUG_LOGS") == "1":
+                add_system_log(f"ℹ️ [防禦分流] {sym} 正常退出 (exit 0)，將在 5 秒後重試檢查...", "info")
         else:
             add_system_log(f"⚠️ [系統守護] 偵測到機器人({sym})意外停止 (exit {proc.returncode})，將在 5 秒後自動重啟...", "danger")
             
@@ -274,7 +337,7 @@ def _start_single_bot(symbol: str, trade_amt: float):
 
 def _start_multi_coin_bot(trade_amt: float):
     global bot_processes
-    cmd = [sys.executable, "-u", "heavy_dual_shot_core.py"]
+    cmd = [sys.executable, "-u", "main.py"]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
     bot_processes["__multi__"] = proc
     threading.Thread(target=read_bot_output, args=(proc, "__multi__"), daemon=True).start()
@@ -283,7 +346,7 @@ def _start_multi_coin_bot(trade_amt: float):
 
 def _get_open_position_symbols():
     try:
-        state_path = os.path.join(os.path.dirname(__file__), "..", "paper_state.json")
+        state_path = os.path.join(os.path.dirname(__file__), "..", "data", "paper_state.json")
         if not os.path.exists(state_path):
             return []
         with open(state_path, "r") as f:
@@ -364,7 +427,7 @@ def kill_bot():
     
     # 確保所有遺留的 bot 行程都被清除（包含 manage_bot.sh 直接啟動的進程）
     try:
-        os.system("pkill -f 'heavy_dual_shot_core\\.py'")
+        os.system("pkill -f 'main\\.py'")
     except:
         pass
 
@@ -414,12 +477,15 @@ def toggle_bot():
     return bot_status["is_running"]
 
 def set_bot_symbol(symbols):
+    from core.config import COIN_PROFILE_CONFIG
+
     if isinstance(symbols, str):
         symbols = [symbols]
     if not symbols:
         symbols = list(DEFAULT_SYMBOLS)
 
     symbols = normalize_symbol_list(symbols)
+    symbols = [s for s in symbols if not COIN_PROFILE_CONFIG.get(s, {}).get("disable_entry", False)]
     save_symbol_config(symbols)
     bot_status["active_symbols"] = symbols
 
@@ -432,8 +498,7 @@ def set_bot_symbol(symbols):
 def set_bot_watch_symbols(symbols):
     if not isinstance(symbols, list):
         symbols = [symbols]
-    # 限定 5 隻
-    symbols = [s.upper() for s in symbols][:5]
+    symbols = [s.upper() for s in symbols][:10]
     bot_status["watch_symbols"] = symbols
     add_system_log(f"📋 使用者更新自選關注清單: {', '.join(symbols)}", "info")
     return symbols

@@ -1,4 +1,7 @@
+import logging
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def calculate_ema(prices, period):
@@ -82,7 +85,7 @@ def _macd_vals(s):
 def _calc_sl_tp(sym, side, s, p, route="a"):
     """計算 ATR、SL 距離、TP 距離、預期盈虧比。"""
     from core.symbol_profile import get_effective_exit_setting, get_dynamic_atr_multiplier
-    from core.config import SL_ATR_MULTIPLIER, TP_ATR_MULTIPLIER
+    from core.config import SL_ATR_MULTIPLIER, TP_ATR_MULTIPLIER, HARD_STOP_LOSS_PCT, EXIT_RR_MULTIPLIER
     atr_val = _get_atr(s, p)
     sl_raw = get_effective_exit_setting(sym, "sl_atr_multiplier", s.get("sl_atr_multiplier", SL_ATR_MULTIPLIER), side == "buy")
     tp_mult = get_effective_exit_setting(sym, "tp_atr_multiplier", s.get("tp_atr_multiplier", TP_ATR_MULTIPLIER), side == "buy")
@@ -92,7 +95,7 @@ def _calc_sl_tp(sym, side, s, p, route="a"):
     if route == "Automatic_Reverse":
         old_sl_mult = sl_mult
         sl_mult *= 1.25
-        print(f"@@COIN_DEBUG@@ 🛡️ {sym} 反手進場，擴大止損空間 (sl_mult: {old_sl_mult:.2f} -> {sl_mult:.2f})")
+        logger.info(f"@@COIN_DEBUG@@ 🛡️ {sym} 反手進場，擴大止損空間 (sl_mult: {old_sl_mult:.2f} -> {sl_mult:.2f})")
 
     # Layer-A: Low-Volatility Mode Switch
     _atr_hist_sl = s.get("atr_history", [])
@@ -102,7 +105,7 @@ def _calc_sl_tp(sym, side, s, p, route="a"):
     if _is_low_vol_mode:
         sl_dist = p * 0.010
         tp_dist = p * 0.015
-        print(f"[LowVol_Mode] {sym} ATR low({atr_val:.5f} < avg{_atr_24h_avg_sl:.5f}x0.8), using fixed% SL=1.0% TP=1.5%")
+        logger.info(f"[LowVol_Mode] {sym} ATR low({atr_val:.5f} < avg{_atr_24h_avg_sl:.5f}x0.8), using fixed% SL=1.0% TP=1.5%")
     else:
         sl_dist = max(atr_val * sl_mult, p * 0.004)
         sl_dist += p * 0.0005  # 0.05% 執行滑點緩衝
@@ -114,12 +117,19 @@ def _calc_sl_tp(sym, side, s, p, route="a"):
     sl_dist = max(sl_dist, p * _SL_FLOOR_PCT)
     tp_dist = max(tp_dist, p * _TP_FLOOR_PCT)
 
+    hard_sl_pct = get_effective_exit_setting(
+        sym,
+        "hard_stop_loss_pct",
+        s.get("hard_stop_loss_pct", HARD_STOP_LOSS_PCT),
+        side == "buy",
+    )
+    risk_dist = max(sl_dist, p * hard_sl_pct)
+
     # Layer-C: Forced R:R Floor
-    MIN_RR_FLOOR = 1.5
-    min_tp_dist = sl_dist * MIN_RR_FLOOR
+    min_tp_dist = risk_dist * EXIT_RR_MULTIPLIER
     if tp_dist < min_tp_dist:
-        print(f"⚠️ [R:R_Adjustment] {sym} 原本停利距離 {tp_dist:.4f} 太近 (< SL×{MIN_RR_FLOOR})，已強制拉開至 {min_tp_dist:.4f} (保證 R:R >= {MIN_RR_FLOOR})")
+        logger.info(f"⚠️ [R:R_Adjustment] {sym} 原本停利距離 {tp_dist:.4f} 太近 (< 風險×{EXIT_RR_MULTIPLIER})，已強制拉開至 {min_tp_dist:.4f} (保證 R:R >= {EXIT_RR_MULTIPLIER})")
         tp_dist = min_tp_dist
 
-    expected_rr = tp_dist / sl_dist if sl_dist > 0 else 0
+    expected_rr = tp_dist / risk_dist if risk_dist > 0 else 0
     return atr_val, sl_dist, tp_dist, expected_rr

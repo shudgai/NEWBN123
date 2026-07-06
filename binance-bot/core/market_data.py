@@ -1,3 +1,4 @@
+import logging
 import asyncio
 import json
 import os
@@ -8,6 +9,8 @@ from core.config import (
     ATR_WARMUP_BATCH_SIZE, ATR_WARMUP_SYMBOL_COUNT, ATR_WARMUP_LIMIT, ATR_WARMUP_PAUSE_SEC,
 )
 from core.indicators import calculate_ema, calculate_bollinger_bands
+
+logger = logging.getLogger(__name__)
 
 
 async def update_market_wind(exchange):
@@ -63,13 +66,13 @@ async def update_market_wind(exchange):
 
         if btc_change_15m < -0.025 or eth_change_15m < -0.025:
             global_market_wind["allow_long"] = False
-            print(f"⚠️ [大盤瀑布風控] BTC 15m變動 {btc_change_15m*100:.2f}% | ETH 15m變動 {eth_change_15m*100:.2f}% | 🚫 暫停所有小幣多單開倉！")
+            logger.info(f"⚠️ [大盤瀑布風控] BTC 15m變動 {btc_change_15m*100:.2f}% | ETH 15m變動 {eth_change_15m*100:.2f}% | 🚫 暫停所有小幣多單開倉！")
         elif btc_change_15m > 0.025 or eth_change_15m > 0.025:
             global_market_wind["allow_short"] = False
-            print(f"⚠️ [大盤暴漲風控] BTC 15m變動 {btc_change_15m*100:.2f}% | ETH 15m變動 {eth_change_15m*100:.2f}% | 🚫 暫停所有小幣空單開倉！")
+            logger.info(f"⚠️ [大盤暴漲風控] BTC 15m變動 {btc_change_15m*100:.2f}% | ETH 15m變動 {eth_change_15m*100:.2f}% | 🚫 暫停所有小幣空單開倉！")
 
     except Exception as e:
-        print(f"⚠️ [更新大盤風向失敗]: {e}")
+        logger.info(f"⚠️ [更新大盤風向失敗]: {e}")
 
 
 async def initialize_atr_history(exchange, batch_size: int = ATR_WARMUP_BATCH_SIZE, limit: int = ATR_WARMUP_LIMIT, pause_sec: float = ATR_WARMUP_PAUSE_SEC):
@@ -78,29 +81,30 @@ async def initialize_atr_history(exchange, batch_size: int = ATR_WARMUP_BATCH_SI
 
     loaded_symbols = set()
     try:
-        if os.path.exists("atr_history_cache.json"):
-            with open("atr_history_cache.json", "r") as f:
+        cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "atr_history_cache.json")
+        if os.path.exists(cache_path):
+            with open(cache_path, "r") as f:
                 cache_data = json.load(f)
             for sym in cache_data:
                 if sym in ctx.STATES and sym in target_symbols:
                     ctx.STATES[sym]["atr_history"] = cache_data[sym]
                     loaded_symbols.add(sym)
             if loaded_symbols:
-                print(f"💾 [快取] 成功從本地載入 {len(loaded_symbols)} 個幣種的 ATR 歷史資料！")
+                logger.info(f"💾 [快取] 成功從本地載入 {len(loaded_symbols)} 個幣種的 ATR 歷史資料！")
     except Exception as e:
-        print(f"⚠️ [快取] 讀取失敗: {e}")
+        logger.info(f"⚠️ [快取] 讀取失敗: {e}")
 
     target_symbols = [sym for sym in target_symbols if sym not in loaded_symbols]
     if not target_symbols:
-        print("✅ [初始化] 所有幣種皆已從快取載入，跳過網路預熱！")
+        logger.info("✅ [初始化] 所有幣種皆已從快取載入，跳過網路預熱！")
         return
 
-    print(f"⏳ [初始化] 尚有 {len(target_symbols)} 個幣種需要網路獲取，開始分批獲取 {limit} 根 {TIMEFRAME} K線...")
+    logger.info(f"⏳ [初始化] 尚有 {len(target_symbols)} 個幣種需要網路獲取，開始分批獲取 {limit} 根 {TIMEFRAME} K線...")
     total = len(target_symbols)
 
     for batch_index in range(0, total, batch_size):
         batch = target_symbols[batch_index:batch_index + batch_size]
-        print(f"⏳ [初始化] 進行第 {batch_index // batch_size + 1} 批：{len(batch)} 個幣種")
+        logger.info(f"⏳ [初始化] 進行第 {batch_index // batch_size + 1} 批：{len(batch)} 個幣種")
         tasks = [exchange.fetch_ohlcv(sym, '1m', limit=limit) for sym in batch]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -117,9 +121,9 @@ async def initialize_atr_history(exchange, batch_size: int = ATR_WARMUP_BATCH_SI
                     if len(tr_list) >= 14:
                         atr = float(np.mean(tr_list[-14:]))
                         ctx.STATES[sym]["atr_history"].append(atr)
-                print(f"✅ [初始化] {sym} 歷史 ATR 預熱完成，載入 {len(ctx.STATES[sym]['atr_history'])} 筆數據")
+                logger.info(f"✅ [初始化] {sym} 歷史 ATR 預熱完成，載入 {len(ctx.STATES[sym]['atr_history'])} 筆數據")
             else:
-                print(f"⚠️ [初始化] {sym} 歷史 ATR 預熱失敗: {result}")
+                logger.info(f"⚠️ [初始化] {sym} 歷史 ATR 預熱失敗: {result}")
 
         if batch_index + batch_size < total:
             await asyncio.sleep(pause_sec)
@@ -127,18 +131,39 @@ async def initialize_atr_history(exchange, batch_size: int = ATR_WARMUP_BATCH_SI
 
 async def fetch_all_klines(exchange):
     from core import ctx
+    from core.config import MARKET_FETCH_BATCHES, KLINE_BATCH_PAUSE_SEC
     async def fetch_with_sem(sym):
         async with ctx.request_semaphore:
             return await exchange.fetch_ohlcv(sym, TIMEFRAME, limit=100)
 
-    tasks = {sym: fetch_with_sem(sym) for sym in ctx.ALL_SYMBOLS}
+    symbols = list(dict.fromkeys(ctx.ALL_SYMBOLS))
+    total = len(symbols)
+    if total == 0:
+        return
+
+    # 分批輪替抓取：每輪主迴圈只抓一批，而不是把所有監控幣種同時發出去，
+    # 降低瞬間對外請求量、避免衝高幣安 API 權重（曾發生過權重打到 3900+/2400）。
+    batches = max(1, int(MARKET_FETCH_BATCHES))
+    batch_size = (total + batches - 1) // batches
+    idx = getattr(ctx, 'market_fetch_index', 0)
+    start = idx * batch_size
+    batch = symbols[start:start + batch_size]
+    if not batch:
+        idx = 0
+        batch = symbols[:batch_size]
+
+    tasks = {sym: fetch_with_sem(sym) for sym in batch}
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-    for i, sym in enumerate(ctx.ALL_SYMBOLS):
+    for i, sym in enumerate(batch):
         if not isinstance(results[i], Exception):
             ctx.STATES[sym]["ohlcv"] = results[i]
             ctx.STATES[sym]["close_price"] = results[i][-1][4]
         else:
-            print(f"⚠️ [K線獲取失敗] {sym}: {results[i]}")
+            logger.info(f"⚠️ [K線獲取失敗] {sym}: {results[i]}")
+
+    ctx.market_fetch_index = (idx + 1) % batches
+    if KLINE_BATCH_PAUSE_SEC > 0:
+        await asyncio.sleep(KLINE_BATCH_PAUSE_SEC)
 
 
 async def fetch_sma200_15m(exchange, sym):
@@ -149,15 +174,16 @@ async def fetch_sma200_15m(exchange, sym):
         closes = np.array([x[4] for x in ohlcv])
         return float(np.mean(closes))
     except Exception as e:
-        print(f"⚠️ [SMA200獲取失敗] {sym}: {e}")
+        logger.info(f"⚠️ [SMA200獲取失敗] {sym}: {e}")
         return 0.0
 
 
 async def fetch_all_sma200(exchange):
     from core import ctx
-    tasks = [fetch_sma200_15m(exchange, sym) for sym in ctx.ALL_SYMBOLS]
+    symbols = list(dict.fromkeys(ctx.ALL_SYMBOLS))
+    tasks = [fetch_sma200_15m(exchange, sym) for sym in symbols]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    for i, sym in enumerate(ctx.ALL_SYMBOLS):
+    for i, sym in enumerate(symbols):
         if not isinstance(results[i], Exception):
             ctx.STATES[sym]["sma200_15m"] = results[i]
 
@@ -174,15 +200,16 @@ async def fetch_ema_15m(exchange, sym):
         ema50 = calculate_ema(closes, 50)
         return float(ema20), float(ema50)
     except Exception as e:
-        print(f"⚠️ [15m EMA獲取失敗] {sym}: {e}")
+        logger.info(f"⚠️ [15m EMA獲取失敗] {sym}: {e}")
         return 0.0, 0.0
 
 
 async def fetch_all_ema_15m(exchange):
     from core import ctx
-    tasks = [fetch_ema_15m(exchange, sym) for sym in ctx.ALL_SYMBOLS]
+    symbols = list(dict.fromkeys(ctx.ALL_SYMBOLS))
+    tasks = [fetch_ema_15m(exchange, sym) for sym in symbols]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    for i, sym in enumerate(ctx.ALL_SYMBOLS):
+    for i, sym in enumerate(symbols):
         if not isinstance(results[i], Exception):
             ema20, ema50 = results[i]
             ctx.STATES[sym]["ema20_15m"] = ema20
@@ -200,15 +227,16 @@ async def fetch_ema50_1h(exchange, sym):
         ema50 = calculate_ema(closes, 50)
         return float(ema50)
     except Exception as e:
-        print(f"⚠️ [1H EMA50獲取失敗] {sym}: {e}")
+        logger.info(f"⚠️ [1H EMA50獲取失敗] {sym}: {e}")
         return 0.0
 
 
 async def fetch_all_ema50_1h(exchange):
     from core import ctx
-    tasks = [fetch_ema50_1h(exchange, sym) for sym in ctx.ALL_SYMBOLS]
+    symbols = list(dict.fromkeys(ctx.ALL_SYMBOLS))
+    tasks = [fetch_ema50_1h(exchange, sym) for sym in symbols]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    for i, sym in enumerate(ctx.ALL_SYMBOLS):
+    for i, sym in enumerate(symbols):
         if not isinstance(results[i], Exception):
             ctx.STATES[sym]["ema50_1h"] = results[i]
 
@@ -224,15 +252,16 @@ async def fetch_bb_4h(exchange, sym):
         mbb, upper, lower = calculate_bollinger_bands(closes, 20, 2)
         return float(upper[-1]), float(lower[-1])
     except Exception as e:
-        print(f"⚠️ [4H BB獲取失敗] {sym}: {e}")
+        logger.info(f"⚠️ [4H BB獲取失敗] {sym}: {e}")
         return None, None
 
 
 async def fetch_all_bb_4h(exchange):
     from core import ctx
-    tasks = [fetch_bb_4h(exchange, sym) for sym in ctx.ALL_SYMBOLS]
+    symbols = list(dict.fromkeys(ctx.ALL_SYMBOLS))
+    tasks = [fetch_bb_4h(exchange, sym) for sym in symbols]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    for i, sym in enumerate(ctx.ALL_SYMBOLS):
+    for i, sym in enumerate(symbols):
         if not isinstance(results[i], Exception):
             upper, lower = results[i]
             if upper is not None and lower is not None:
@@ -247,7 +276,8 @@ async def load_open_positions():
     if not PAPER_TRADING:
         return
     try:
-        with open("paper_state.json", "r") as f:
+        state_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "paper_state.json")
+        with open(state_path, "r") as f:
             state = json.load(f)
 
         current_time = time.time()
@@ -258,7 +288,7 @@ async def load_open_positions():
             if abs(qty) > 0.000001:
                 sym = pk.replace(":", "")
                 if sym not in ctx.ALL_SYMBOLS:
-                    print(f"⚠️ [發現未監控持倉] {sym} 仍有未平倉位，自動加回監控清單並在介面顯示！")
+                    logger.info(f"⚠️ [發現未監控持倉] {sym} 仍有未平倉位，自動加回監控清單並在介面顯示！")
                     ctx.ALL_SYMBOLS.append(sym)
                     ctx.STATES[sym] = build_symbol_state(sym)
                     apply_symbol_profile(sym, SYMBOL_PROFILES.get(sym, {}))
@@ -278,4 +308,4 @@ async def load_open_positions():
                             ctx.STATES[sym]["status"] = "COOLDOWN"
                             ctx.STATES[sym]["next_status_time"] = trade_time_sec + 300
     except Exception as e:
-        print(f"⚠️ [讀取持倉失敗] {e}")
+        logger.info(f"⚠️ [讀取持倉失敗] {e}")

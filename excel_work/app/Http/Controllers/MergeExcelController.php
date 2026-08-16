@@ -369,12 +369,16 @@ class MergeExcelController extends Controller
                             }
                         }
 
-                        // Apply special rule for 639: forklift fee is 0 if weight <= 100
+                        // Apply special rule for 639: forklift fee is 0 if weight per piece <= 100
                         $is639 = str_contains($file->getClientOriginalName(), '639') || str_contains($rowDataForSorting['cells']['客戶名稱']['value'] ?? '', '639');
                         if ($is639) {
                             $weightStr = $rowDataForSorting['cells']['重量(kg)']['value'] ?? '0';
                             $weight = (float)str_replace(',', '', (string)$weightStr);
-                            if ($weight <= 100) {
+                            $piecesStr = $rowDataForSorting['cells']['件數']['value'] ?? '1';
+                            $pieces = (int)str_replace(',', '', (string)$piecesStr);
+                            if ($pieces <= 0) $pieces = 1;
+                            
+                            if (($weight / $pieces) <= 100) {
                                 if (isset($rowDataForSorting['cells']['堆高機'])) {
                                     $rowDataForSorting['cells']['堆高機']['value'] = 0;
                                 }

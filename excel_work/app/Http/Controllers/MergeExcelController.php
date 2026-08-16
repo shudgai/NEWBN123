@@ -216,7 +216,7 @@ class MergeExcelController extends Controller
                             $cellDateVal = '';
                             if (\PhpOffice\PhpSpreadsheet\Shared\Date::isDateTime($cell)) {
                                 try {
-                                    $dateObj = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($cell->getValue());
+                                    $dateObj = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($cell->getCalculatedValue());
                                     $cellDateVal = $dateObj->format('m/d');
                                 } catch (\Exception $e) {
                                     $cellDateVal = trim((string)$cell->getFormattedValue());
@@ -345,7 +345,11 @@ class MergeExcelController extends Controller
                             $cell = $sheet->getCell($srcColStr . $row);
                             
                             if ($isFeeColCache[$srcColStr]) {
-                                $cellValue = $cell->getValue();
+                                try {
+                                    $cellValue = $cell->getCalculatedValue();
+                                } catch (\Exception $e) {
+                                    $cellValue = $cell->getValue();
+                                }
                                 $rowDataForSorting['cells'][$cleanVal] = [
                                     'value' => $cellValue,
                                     'is_fee' => true

@@ -723,7 +723,13 @@ class BinanceFuturesBot:
         self._stop_event = threading.Event()
         # 保護所有會實際改變倉位狀態的動作(開倉/平倉),避免主迴圈執行緒跟網頁的
         # 「手動平倉」API 請求執行緒同時動到同一筆倉位,造成重複平倉之類的競態問題。
-        self._trading_lock = threading.Lock()
+        # 用 RLock(可重入鎖)是因為 _process_slot() 在鎖已經拿到的情況下還會呼叫
+        # is_trading_enabled(),它自己也要拿同一把鎖 - 一般的 Lock 在同一執行緒裡
+        # 重複拿鎖會直接死鎖。
+        self._trading_lock = threading.RLock()
+        # 暫停交易只擋「開新倉」,現有倉位的止損/移動停利/策略平倉照常運作 -
+        # 不會讓你暫停之後手上還握著沒有保護的倉位。
+        self._trading_enabled = True
 
         self._status_lock = threading.Lock()
         self._status = {
@@ -1139,6 +1145,7 @@ class BinanceFuturesBot:
             "poll_interval_sec": self.config.poll_interval_sec,
             "hedge_mode": self.config.hedge_mode,
             "running": not self._stop_event.is_set(),
+            "trading_enabled": self.is_trading_enabled(),
             "started_at": started_at,
             "last_update": last_update,
             "balance": balance,
@@ -1207,6 +1214,21 @@ class BinanceFuturesBot:
         logger.info("收到停止訊號,機器人將於本輪結束後安全停止...")
         self._stop_event.set()
 
+    def pause_trading(self):
+        """暫停交易:不再開新倉,但現有倉位的止損/移動停利/策略平倉都照常運作。"""
+        with self._trading_lock:
+            self._trading_enabled = False
+        logger.info("⏸️ 交易已暫停(不會再開新倉,現有倉位仍受止損/移動停利保護)")
+
+    def resume_trading(self):
+        with self._trading_lock:
+            self._trading_enabled = True
+        logger.info("▶️ 交易已恢復")
+
+    def is_trading_enabled(self) -> bool:
+        with self._trading_lock:
+            return self._trading_enabled
+
     def _process_slot(self, symbol: str, slot: str, market: MarketSnapshot) -> tuple:
         """
         處理單一個倉位槽這一輪的「查詢持倉 -> 止損止盈檢查 -> 策略判斷 -> 開倉/平倉 ->
@@ -1258,6 +1280,8 @@ class BinanceFuturesBot:
             target_slot = self.slot_for(signal.value)
             if target_slot != slot:
                 pass  # 這個進場訊號屬於另一個槽,不是這次呼叫該處理的
+            elif not self.is_trading_enabled():
+                logger.info(f"[{symbol}][{slot}] 交易已暫停,忽略新的 {signal.value} 進場訊號")
             elif position.is_open:
                 logger.info(f"[{symbol}][{slot}] 已有 {position.side} 持倉,忽略新的 {signal.value} 訊號")
             else:
@@ -1346,6 +1370,10 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   .symbol-section { margin-top: 2rem; }
   .symbol-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1rem; }
   .symbol-section h2 { font-size: 1.05rem; margin: 0; }
+  .symbol-price { color: #6b7280; font-weight: 600; margin-left: .5rem; }
+  .trading-toggle-btn { background: #ffffff; border: 1px solid #e2e5ea; border-radius: 6px;
+                         padding: .35rem .8rem; font-size: .8rem; cursor: pointer; font-weight: 600; }
+  .trading-toggle-btn:hover { background: #f5f6f8; }
   .slot-block { margin-top: 1rem; }
   .slot-block:first-of-type { margin-top: 0; }
   .slot-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
@@ -1426,6 +1454,21 @@ async function manualOpen(symbol, side) {
   }
 }
 
+async function toggleTrading(currentlyEnabled) {
+  const action = currentlyEnabled ? 'pause' : 'resume';
+  const msg = currentlyEnabled
+    ? '確定要停止交易嗎?不會再開新倉,但現有倉位仍會照常止損/移動停利。'
+    : '確定要恢復交易嗎?';
+  if (!confirm(msg)) return;
+  try {
+    await fetch(`/api/trading/${action}`, { method: 'POST' });
+  } catch (e) {
+    alert('操作失敗: ' + e);
+  } finally {
+    refresh();
+  }
+}
+
 async function refresh() {
   try {
     const res = await fetch('/api/status');
@@ -1435,13 +1478,20 @@ async function refresh() {
     const rpnl = s.realized_pnl;
     const rpnlClass = rpnl > 0 ? 'pnl-pos' : (rpnl < 0 ? 'pnl-neg' : '');
 
+    const tradingEnabled = s.trading_enabled !== false;
     document.getElementById('summary').innerHTML = `
       <div class="card"><div class="label">環境</div><div class="value">${envLabel}</div></div>
       <div class="card"><div class="label">下單模式</div><div class="value"><span class="badge ${(s.paper_trading || s.dry_run) ? 'off' : 'on'}">${modeLabel}</span></div></div>
       <div class="card"><div class="label">運行狀態</div><div class="value"><span class="badge ${s.running ? 'on' : 'off'}">${s.running ? '運行中' : '已停止'}</span></div></div>
+      <div class="card">
+        <div class="label">交易開關</div>
+        <div class="value" style="display:flex; align-items:center; gap:.6rem;">
+          <span class="badge ${tradingEnabled ? 'on' : 'off'}">${tradingEnabled ? '交易中' : '已暫停'}</span>
+          <button class="trading-toggle-btn" onclick="toggleTrading(${tradingEnabled})">${tradingEnabled ? '停止交易' : '恢復交易'}</button>
+        </div>
+      </div>
       <div class="card"><div class="label">帳戶餘額 (USDT)</div><div class="value">${s.balance ?? '-'}</div></div>
       <div class="card"><div class="label">總已實現損益 (USDT)</div><div class="value ${rpnlClass}">${rpnl ?? '-'}</div></div>
-      <div class="card"><div class="label">累積手續費 (USDT)</div><div class="value">${s.total_fees ?? '-'}</div></div>
       <div class="card"><div class="label">槓桿 / 保證金模式</div><div class="value">${s.leverage}x / ${s.margin_type}</div></div>
       <div class="card"><div class="label">K 線週期 / 輪詢間隔</div><div class="value">${s.kline_interval} / ${s.poll_interval_sec}s</div></div>
       <div class="card"><div class="label">追蹤幣種數</div><div class="value">${(s.symbol_list || []).length}</div></div>
@@ -1496,8 +1546,7 @@ async function refresh() {
       return `
         <div class="symbol-section">
           <div class="symbol-header">
-            <h2>${sym}</h2>
-            <span style="font-size:.85rem;color:#6b7280">現價 ${market.price ?? '-'}</span>
+            <h2>${sym} <span class="symbol-price">${market.price ?? '-'}</span></h2>
           </div>
           ${slotBlocks}
           ${errHtml}
@@ -1613,6 +1662,16 @@ def create_app(bot: "BinanceFuturesBot") -> FastAPI:
     @app.post("/api/open/{symbol}/{side}")
     def api_open(symbol: str, side: str):
         return bot.manual_open(symbol.upper(), side.upper())
+
+    @app.post("/api/trading/pause")
+    def api_pause():
+        bot.pause_trading()
+        return {"ok": True, "trading_enabled": bot.is_trading_enabled()}
+
+    @app.post("/api/trading/resume")
+    def api_resume():
+        bot.resume_trading()
+        return {"ok": True, "trading_enabled": bot.is_trading_enabled()}
 
     return app
 

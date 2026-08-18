@@ -1,0 +1,1546 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+新幣安 - Binance USDT-M 合約交易機器人 (獨立單檔框架)
+
+這是一個獨立的框架,負責:連線、槓桿/保證金設定、行情與持倉查詢、
+下單與平倉、基本風控(數量精度對齊、可選固定止損/止盈)、主迴圈排程。
+
+交易訊號判斷刻意「不」內建自動策略 - 請繼承 Strategy 類別並實作
+on_tick(),回傳 Signal.LONG / SHORT / CLOSE / HOLD。預設的
+ManualSignalStrategy 只會記錄市況、永遠回傳 HOLD,可安全執行不會下單,
+方便你先確認資料流是否正常,再逐步加入自己的判斷邏輯。
+
+安裝依賴:
+    pip install python-binance python-dotenv fastapi uvicorn
+
+環境變數設定 (可寫在同目錄的 .env 檔,或直接 export):
+    PAPER_TRADING            true/false,預設 true。true 時完全不需要 API Key,
+                            用真實市價資料模擬下單與損益,資金只是本機記憶體裡的虛擬數字,
+                            適合一開始先用來驗證資料流與策略邏輯
+    PAPER_STARTING_BALANCE   紙交易模式的起始虛擬本金 (USDT),預設 10000。
+                            多幣種時是「共用」的同一筆本金(如同一個帳戶同時開好幾個倉位)
+    BINANCE_API_KEY         Binance API Key(PAPER_TRADING=false 時才需要)
+    BINANCE_API_SECRET      Binance API Secret(PAPER_TRADING=false 時才需要)
+    BINANCE_TESTNET         true/false,預設 true。只影響 PAPER_TRADING=false 之後「真正下單」
+                            的環境;紙交易模式一律直接讀正式環境的公開行情(不受這個設定影響),
+                            因為測試網的公開行情常常是稀疏、不即時的假資料,拿來模擬會失真
+    DRY_RUN                 true/false,預設 true。PAPER_TRADING=false 時生效:
+                            true 時只記錄訊號與模擬下單內容,不會呼叫真實下單 API
+    SYMBOLS                  要同時追蹤/交易的交易對,逗號分隔,預設 BTCUSDT
+                            例如 SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
+                            每個幣種各自獨立計算指標、獨立持倉,共用同一套 Strategy 邏輯與同一筆帳戶餘額
+    KLINE_INTERVAL           K 線週期,預設 15m
+    LEVERAGE                 槓桿倍數,預設 5
+    MARGIN_TYPE               ISOLATED(逐倉)或 CROSSED(全倉),預設 ISOLATED
+    RISK_PCT_PER_TRADE       每筆交易願意投入的帳戶餘額比例(0~1),預設 0.02
+    MAX_MARGIN_PER_TRADE_USDT 每筆交易投入本金(保證金,尚未乘槓桿)的硬上限,預設 50。
+                            實際投入本金 = min(帳戶餘額 * RISK_PCT_PER_TRADE, 這個上限),
+                            兩個條件同時生效,無論帳戶餘額多大,單筆最多只會投入這個金額
+    STOP_LOSS_PCT             進場後停損的價格百分比距離,0 表示不設,預設 0。
+                            真實/測試網模式:掛出以「標記價格」觸發的 STOP_MARKET 單(防插針);
+                            紙交易模式:每輪輪詢時查最近幾分鐘「標記價格」的高低區間去比對
+                            (跟真實下單用同一種觸發價格,且用區間而不是單一時間點,盡量貼近
+                            「掛在交易所、價格曾經觸及就成交」的行為),一觸發就立即模擬平倉。
+                            注意:紙交易終究是輪詢模擬,極短暫、輪詢區間內都沒被涵蓋到的插針
+                            仍可能被漏掉,無法做到跟真實掛單 100% 完全一致
+    TRAILING_STOP_PCT         移動停利的回落幅度(callback rate),0 表示不設,預設 0.0025(0.25%)。
+                            進場後不是掛一個固定的停利價位,而是持續追蹤「進場以來最有利的
+                            價格」(多單記錄最高價、空單記錄最低價),讓停利價位跟著這個最佳
+                            價格同步往有利方向移動;只有當價格從最佳價格回落超過這個幅度,
+                            才會觸發停利出場 - 利潤能一直往上跑就一直跟著往上鎖,不會在價格
+                            還在噴的時候就被固定停利點提早出場。
+                            真實/測試網模式:掛出 TRAILING_STOP_MARKET 單(以標記價格啟動,
+                            防插針),callbackRate 由交易所自己追蹤,不需要輪詢比對;
+                            紙交易模式:每輪輪詢時用「標記價格」的區間高低點更新最佳價格,
+                            回落超過 TRAILING_STOP_PCT 就模擬觸發平倉,道理跟 STOP_LOSS_PCT
+                            的模擬方式一樣
+    FEE_PCT                   單邊模擬手續費率,預設 0.0004(0.04%,幣安合約 Taker 費率),
+                            只影響紙交易:開倉、平倉都會各扣一次,累積已實現損益已經是
+                            扣完手續費的淨額。真實/測試網下單本來就會被交易所收真的手續費,
+                            不需要另外模擬
+    ADX_THRESHOLD             EmaRsiCrossStrategy 的 ADX 趨勢濾網門檻,預設 20.0。數值愈高
+                            代表要求趨勢愈明確才會進場、訊號愈少;調低(例如 15)會增加
+                            觸發次數,但回測顯示調低不會讓獲利因子變好,純粹是想多看到
+                            它實際動作、不是為了提升績效
+    HEDGE_MODE                true/false,預設 false(單向持倉)。true 時每個交易對會有
+                            「多單」「空單」兩個完全獨立的倉位槽,可以同時持有多單跟空單
+                            (各自獨立計算損益、獨立止損止盈、獨立平倉),不像單向模式只要
+                            有倉位就會擋掉反方向的新訊號。策略邏輯本身完全不用改,框架會
+                            對同一個策略分別用「多單視角」「空單視角」各呼叫一次來決定
+                            每個槽該怎麼做。真實/測試網模式下,啟用時會呼叫
+                            futures_change_position_mode 切換帳戶為雙向持倉,下單時也會
+                            帶 positionSide 參數
+    POLL_INTERVAL_SEC         主迴圈輪詢間隔秒數,預設 15
+    WEB_PORT                  網頁儀表板監聽的 port,預設 8005
+                            (另一個舊專案 new bn 佔用 8006,這裡刻意用不同 port 避免衝突)
+
+使用方式(建議循序漸進):
+    1. PAPER_TRADING=true(預設值,不需任何 API Key)先跑起來,確認資料流與策略邏輯正常
+    2. 繼承 Strategy 寫自己的 on_tick() 邏輯,取代 ManualSignalStrategy
+    3. 策略在紙交易下的損益與行為合理、且經過下面「回測發現」段落那種樣本外驗證後,
+       才設定 PAPER_TRADING=false、BINANCE_TESTNET=true、DRY_RUN=true,填入測試網
+       API Key,確認能正確連線、查詢真實帳戶與掛單
+    4. 最後才考慮 BINANCE_TESTNET=false 並關閉 DRY_RUN 進入正式環境(將動用真實資金,請務必謹慎)
+
+啟動後打開瀏覽器 http://localhost:8005 (或設定的 WEB_PORT)即可看到儀表板,
+顯示目前環境、現價、持倉、最後訊號等即時狀態,每 3 秒自動刷新一次。
+
+回測發現(用 回測.py,2026-08-18 測試,近 1 年 15 分鐘線):
+    EmaRsiCrossStrategy(含 ADX 濾網)、BollingerRsiReversionStrategy 這兩種策略,
+    分別套用在 BTC/ETH/AVAX/DOT/ADA/TRX 六個幣種、各切兩段獨立時間驗證,總共 24 組
+    測試都沒有穩定站上獲利因子 > 1(net of fees)。結論:單純用這類公開技術指標做
+    方向性預測,在這些高流動性的幣安合約市場上近一年沒有找到穩定優勢 - 不是參數
+    沒調好或幣種選錯,兩種策略類型、多個幣種、多段時間都是一致的結果。
+    目前把這個機器人當成「學習用/基礎設施」(架構、風控、紙交易、回測都已經
+    完整可用),不代表套用現有策略就能真的賺錢。想認真上真錢前,務必自己先用
+    回測.py 對你要用的策略、參數、幣種重新做樣本外驗證,不要只看單一段時間的
+    正報酬就下結論。
+"""
+
+import csv
+import io
+import os
+import sys
+import time
+import threading
+import logging
+from abc import ABC, abstractmethod
+from dataclasses import asdict, dataclass, fields
+from datetime import datetime, timezone
+from decimal import Decimal, ROUND_DOWN
+from enum import Enum
+from typing import Dict, List, Optional
+from urllib.parse import quote
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+import uvicorn
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, Response
+
+from binance.client import Client
+from binance.exceptions import BinanceAPIException, BinanceOrderException
+
+
+# ---------------------------------------------------------------------------
+# 日誌設定
+# ---------------------------------------------------------------------------
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("新幣安.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+logger = logging.getLogger("新幣安")
+
+
+# ---------------------------------------------------------------------------
+# 設定
+# ---------------------------------------------------------------------------
+
+def _env_bool(key: str, default: bool) -> bool:
+    return os.getenv(key, str(default)).strip().lower() in ("1", "true", "yes", "on")
+
+
+@dataclass
+class Config:
+    paper_trading: bool
+    paper_starting_balance: float
+    api_key: str
+    api_secret: str
+    testnet: bool
+    dry_run: bool
+    symbols: List[str]
+    kline_interval: str
+    leverage: int
+    margin_type: str
+    risk_pct_per_trade: float
+    max_margin_per_trade: float
+    stop_loss_pct: float
+    trailing_stop_pct: float
+    fee_pct: float
+    adx_threshold: float
+    hedge_mode: bool
+    poll_interval_sec: int
+    web_port: int
+
+    @classmethod
+    def from_env(cls) -> "Config":
+        paper_trading = _env_bool("PAPER_TRADING", True)
+        api_key = os.getenv("BINANCE_API_KEY", "")
+        api_secret = os.getenv("BINANCE_API_SECRET", "")
+        if not paper_trading and (not api_key or not api_secret):
+            raise RuntimeError(
+                "PAPER_TRADING=false 時需要真實 API Key,"
+                "缺少 BINANCE_API_KEY / BINANCE_API_SECRET,"
+                "請用環境變數或 .env 檔設定後再啟動(或改用 PAPER_TRADING=true 先跑紙交易)。"
+            )
+        symbols = [s.strip().upper() for s in os.getenv("SYMBOLS", "BTCUSDT").split(",") if s.strip()]
+        if not symbols:
+            raise RuntimeError("SYMBOLS 不能為空,至少要指定一個交易對,例如 SYMBOLS=BTCUSDT")
+        return cls(
+            paper_trading=paper_trading,
+            paper_starting_balance=float(os.getenv("PAPER_STARTING_BALANCE", "10000")),
+            api_key=api_key,
+            api_secret=api_secret,
+            testnet=_env_bool("BINANCE_TESTNET", True),
+            dry_run=_env_bool("DRY_RUN", True),
+            symbols=symbols,
+            kline_interval=os.getenv("KLINE_INTERVAL", "15m"),
+            leverage=int(os.getenv("LEVERAGE", "5")),
+            margin_type=os.getenv("MARGIN_TYPE", "ISOLATED").upper(),
+            risk_pct_per_trade=float(os.getenv("RISK_PCT_PER_TRADE", "0.02")),
+            max_margin_per_trade=float(os.getenv("MAX_MARGIN_PER_TRADE_USDT", "50")),
+            stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0")),
+            trailing_stop_pct=float(os.getenv("TRAILING_STOP_PCT", "0.0025")),
+            fee_pct=float(os.getenv("FEE_PCT", "0.0004")),
+            adx_threshold=float(os.getenv("ADX_THRESHOLD", "20.0")),
+            hedge_mode=_env_bool("HEDGE_MODE", False),
+            poll_interval_sec=int(os.getenv("POLL_INTERVAL_SEC", "15")),
+            web_port=int(os.getenv("WEB_PORT", "8005")),
+        )
+
+
+# ---------------------------------------------------------------------------
+# 資料結構 / 策略介面
+# ---------------------------------------------------------------------------
+
+class Signal(Enum):
+    LONG = "LONG"
+    SHORT = "SHORT"
+    CLOSE = "CLOSE"
+    HOLD = "HOLD"
+
+
+@dataclass
+class MarketSnapshot:
+    symbol: str
+    price: float
+    klines: list  # Binance futures_klines() 原始回傳資料
+
+
+@dataclass
+class PositionInfo:
+    symbol: str
+    side: str  # "LONG" / "SHORT" / "NONE"
+    quantity: float
+    entry_price: float
+    unrealized_pnl: float
+
+    @property
+    def is_open(self) -> bool:
+        return self.side != "NONE"
+
+
+class Strategy(ABC):
+    """所有自訂策略請繼承此類別,實作 on_tick() 回傳交易訊號。"""
+
+    @abstractmethod
+    def on_tick(self, market: MarketSnapshot, position: PositionInfo) -> Signal:
+        raise NotImplementedError
+
+
+class ManualSignalStrategy(Strategy):
+    """
+    預設範例策略:永遠回傳 HOLD,只記錄目前市況與持倉,不會觸發任何下單。
+    用來驗證資料流(行情、持倉查詢)是否正常。實際交易邏輯請另外繼承 Strategy 實作,
+    例如加入均線、RSI 等技術指標判斷後回傳 Signal.LONG / SHORT / CLOSE。
+    """
+
+    def on_tick(self, market: MarketSnapshot, position: PositionInfo) -> Signal:
+        logger.info(
+            f"[策略] {market.symbol} 現價 {market.price} | "
+            f"持倉 {position.side} 數量 {position.quantity} "
+            f"(未實現損益 {position.unrealized_pnl})"
+        )
+        return Signal.HOLD
+
+
+def _ema(values: list, period: int) -> list:
+    """指數移動平均線 (EMA),回傳長度與 values 相同的序列。"""
+    if not values:
+        return []
+    k = 2 / (period + 1)
+    result = [values[0]]
+    for v in values[1:]:
+        result.append(v * k + result[-1] * (1 - k))
+    return result
+
+
+def _rsi(values: list, period: int) -> list:
+    """RSI 相對強弱指標,回傳長度與 values 相同的序列;資料不足的部分補 50(中性值)。"""
+    n = len(values)
+    result = [50.0] * n
+    if n < period + 1:
+        return result
+
+    gains = [0.0] * n
+    losses = [0.0] * n
+    for i in range(1, n):
+        change = values[i] - values[i - 1]
+        gains[i] = max(change, 0.0)
+        losses[i] = max(-change, 0.0)
+
+    for i in range(period, n):
+        avg_gain = sum(gains[i - period + 1: i + 1]) / period
+        avg_loss = sum(losses[i - period + 1: i + 1]) / period
+        if avg_loss == 0:
+            result[i] = 100.0
+        else:
+            rs = avg_gain / avg_loss
+            result[i] = 100 - (100 / (1 + rs))
+    return result
+
+
+def _wilder_smooth(values: list, period: int) -> list:
+    """Wilder 平滑(ADX/ATR 慣用的平滑法,alpha = 1/period,跟 _ema() 的 2/(period+1) 不同)。"""
+    n = len(values)
+    if n == 0:
+        return []
+    alpha = 1 / period
+    result = [values[0]]
+    for v in values[1:]:
+        result.append(v * alpha + result[-1] * (1 - alpha))
+    return result
+
+
+def _adx(highs: list, lows: list, closes: list, period: int = 14) -> list:
+    """
+    ADX 平均趨向指標,回傳長度與輸入相同的序列;資料不足補 0(視為「沒有趨勢」,
+    這樣濾網預設是保守的 - 資料不夠就不進場,而不是誤放行)。
+    數值愈高代表趨勢愈強(不分方向),用來過濾盤整時容易出現的均線假交叉訊號。
+    """
+    n = len(closes)
+    result = [0.0] * n
+    if n < period + 2:
+        return result
+
+    tr = [0.0] * n
+    plus_dm = [0.0] * n
+    minus_dm = [0.0] * n
+    for i in range(1, n):
+        high_low = highs[i] - lows[i]
+        high_close = abs(highs[i] - closes[i - 1])
+        low_close = abs(lows[i] - closes[i - 1])
+        tr[i] = max(high_low, high_close, low_close)
+
+        up_move = highs[i] - highs[i - 1]
+        down_move = lows[i - 1] - lows[i]
+        plus_dm[i] = up_move if (up_move > down_move and up_move > 0) else 0.0
+        minus_dm[i] = down_move if (down_move > up_move and down_move > 0) else 0.0
+
+    atr = _wilder_smooth(tr, period)
+    plus_dm_smooth = _wilder_smooth(plus_dm, period)
+    minus_dm_smooth = _wilder_smooth(minus_dm, period)
+
+    dx = [0.0] * n
+    for i in range(n):
+        plus_di = 100 * plus_dm_smooth[i] / atr[i] if atr[i] > 0 else 0.0
+        minus_di = 100 * minus_dm_smooth[i] / atr[i] if atr[i] > 0 else 0.0
+        di_sum = plus_di + minus_di
+        dx[i] = 100 * abs(plus_di - minus_di) / di_sum if di_sum > 0 else 0.0
+
+    return _wilder_smooth(dx, period)
+
+
+class EmaRsiCrossStrategy(Strategy):
+    """
+    EMA 快慢線交叉 + RSI 確認 + ADX 趨勢濾網:
+      - 快線由下往上穿越慢線(黃金交叉)+ RSI > rsi_buy_threshold + ADX > adx_threshold -> 做多
+      - 快線由上往下穿越慢線(死亡交叉)+ RSI < rsi_sell_threshold + ADX > adx_threshold -> 做空
+      - 有多單時遇死亡交叉平倉;有空單時遇黃金交叉平倉(出場不看 ADX,隨時都能出場)
+
+    ADX 是趨勢強度指標,數值低代表盤整、均線很容易出現沒有意義的假交叉。只有 ADX
+    高於門檻(代表真的有趨勢)才允許進場,用來過濾掉盤整時的雜訊訊號。
+
+    判斷一律使用「已收盤」的K棒(倒數第二根),避免用尚未收盤、仍在變動的最新
+    K棒判斷交叉,導致訊號在收盤前反覆出現又消失。
+    """
+
+    def __init__(self, ema_fast: int = 9, ema_slow: int = 21, rsi_period: int = 14,
+                 rsi_buy_threshold: float = 50.0, rsi_sell_threshold: float = 50.0,
+                 adx_period: int = 14, adx_threshold: float = 20.0):
+        self.ema_fast = ema_fast
+        self.ema_slow = ema_slow
+        self.rsi_period = rsi_period
+        self.rsi_buy_threshold = rsi_buy_threshold
+        self.rsi_sell_threshold = rsi_sell_threshold
+        self.adx_period = adx_period
+        self.adx_threshold = adx_threshold
+
+    def on_tick(self, market: MarketSnapshot, position: PositionInfo) -> Signal:
+        # Binance futures_klines 欄位: [開盤時間, 開, 高, 低, 收, 量, 收盤時間, ...]
+        highs = [float(k[2]) for k in market.klines]
+        lows = [float(k[3]) for k in market.klines]
+        closes = [float(k[4]) for k in market.klines]
+
+        min_len = max(self.ema_slow, self.rsi_period, self.adx_period) + 3
+        if len(closes) < min_len:
+            logger.info(f"[策略] K 線資料不足({len(closes)}/{min_len}),暫時觀望")
+            return Signal.HOLD
+
+        ema_fast = _ema(closes, self.ema_fast)
+        ema_slow = _ema(closes, self.ema_slow)
+        rsi = _rsi(closes, self.rsi_period)
+        adx = _adx(highs, lows, closes, self.adx_period)
+
+        # -1 是尚未收盤的最新K棒,-2 是最後一根已收盤K棒,-3 是再前一根已收盤K棒
+        golden_cross = ema_fast[-3] <= ema_slow[-3] and ema_fast[-2] > ema_slow[-2]
+        death_cross = ema_fast[-3] >= ema_slow[-3] and ema_fast[-2] < ema_slow[-2]
+        last_rsi = rsi[-2]
+        last_adx = adx[-2]
+        trending = last_adx > self.adx_threshold
+
+        logger.info(
+            f"[策略] {market.symbol} 現價 {market.price} | EMA{self.ema_fast}/{self.ema_slow}: "
+            f"{ema_fast[-2]:.2f}/{ema_slow[-2]:.2f} | RSI{self.rsi_period}: {last_rsi:.1f} | "
+            f"ADX{self.adx_period}: {last_adx:.1f} | 持倉 {position.side} 數量 {position.quantity}"
+        )
+
+        if not position.is_open:
+            if golden_cross and last_rsi > self.rsi_buy_threshold and trending:
+                logger.info(
+                    f"🟢 黃金交叉 + RSI {last_rsi:.1f} > {self.rsi_buy_threshold} + "
+                    f"ADX {last_adx:.1f} > {self.adx_threshold},觸發做多訊號"
+                )
+                return Signal.LONG
+            if death_cross and last_rsi < self.rsi_sell_threshold and trending:
+                logger.info(
+                    f"🔴 死亡交叉 + RSI {last_rsi:.1f} < {self.rsi_sell_threshold} + "
+                    f"ADX {last_adx:.1f} > {self.adx_threshold},觸發做空訊號"
+                )
+                return Signal.SHORT
+        else:
+            if position.side == "LONG" and death_cross:
+                logger.info("📉 持多單遇死亡交叉,觸發平倉訊號")
+                return Signal.CLOSE
+            if position.side == "SHORT" and golden_cross:
+                logger.info("📈 持空單遇黃金交叉,觸發平倉訊號")
+                return Signal.CLOSE
+
+        return Signal.HOLD
+
+
+def _bollinger_bands(values: list, period: int, num_std: float):
+    """布林通道:回傳 (中軌 SMA, 上軌, 下軌) 三條長度與 values 相同的序列。"""
+    n = len(values)
+    sma = [0.0] * n
+    upper = [0.0] * n
+    lower = [0.0] * n
+    for i in range(n):
+        if i < period - 1:
+            sma[i] = values[i]
+            upper[i] = values[i]
+            lower[i] = values[i]
+            continue
+        window = values[i - period + 1: i + 1]
+        mean = sum(window) / period
+        variance = sum((x - mean) ** 2 for x in window) / period
+        std = variance ** 0.5
+        sma[i] = mean
+        upper[i] = mean + num_std * std
+        lower[i] = mean - num_std * std
+    return sma, upper, lower
+
+
+class BollingerRsiReversionStrategy(Strategy):
+    """
+    布林通道 + RSI 均值回歸策略,邏輯跟 EmaRsiCrossStrategy 完全相反:
+    不是「跟著動能追進去」,而是「在價格衝過頭時反著做,賭它會拉回平均值」。
+      - 收盤價跌破下軌 + RSI < rsi_oversold(超賣)-> 做多,賭反彈
+      - 收盤價漲破上軌 + RSI > rsi_overbought(超買)-> 做空,賭回落
+      - 價格回到中軌(布林通道的移動平均線)就出場,不等到真的反向超買/超賣
+
+    適合盤整、區間震盪的行情;如果市場其實是在一段趨勢中,這個策略會一直在
+    「越噴越買、越跌越空」,虧損可能持續擴大 - 這也是為什麼框架本身的
+    STOP_LOSS_PCT/TRAILING_STOP_PCT 這種跟策略邏輯無關的保底防護仍然很重要。
+
+    判斷一律使用「已收盤」的K棒(倒數第二根),理由跟 EmaRsiCrossStrategy 一樣。
+    """
+
+    def __init__(self, bb_period: int = 20, bb_std: float = 2.0, rsi_period: int = 14,
+                 rsi_oversold: float = 30.0, rsi_overbought: float = 70.0):
+        self.bb_period = bb_period
+        self.bb_std = bb_std
+        self.rsi_period = rsi_period
+        self.rsi_oversold = rsi_oversold
+        self.rsi_overbought = rsi_overbought
+
+    def on_tick(self, market: MarketSnapshot, position: PositionInfo) -> Signal:
+        closes = [float(k[4]) for k in market.klines]
+
+        min_len = max(self.bb_period, self.rsi_period) + 3
+        if len(closes) < min_len:
+            logger.info(f"[策略] K 線資料不足({len(closes)}/{min_len}),暫時觀望")
+            return Signal.HOLD
+
+        sma, upper, lower = _bollinger_bands(closes, self.bb_period, self.bb_std)
+        rsi = _rsi(closes, self.rsi_period)
+
+        # -1 是尚未收盤的最新K棒,-2 是最後一根已收盤K棒
+        last_close = closes[-2]
+        last_sma = sma[-2]
+        last_upper = upper[-2]
+        last_lower = lower[-2]
+        last_rsi = rsi[-2]
+
+        logger.info(
+            f"[策略] {market.symbol} 現價 {market.price} | 布林{self.bb_period}({self.bb_std}σ): "
+            f"下軌 {last_lower:.2f} / 中軌 {last_sma:.2f} / 上軌 {last_upper:.2f} | "
+            f"收盤 {last_close:.2f} | RSI{self.rsi_period}: {last_rsi:.1f} | "
+            f"持倉 {position.side} 數量 {position.quantity}"
+        )
+
+        if not position.is_open:
+            if last_close <= last_lower and last_rsi < self.rsi_oversold:
+                logger.info(f"🟢 收盤價跌破下軌 + RSI {last_rsi:.1f} < {self.rsi_oversold}(超賣),觸發做多訊號")
+                return Signal.LONG
+            if last_close >= last_upper and last_rsi > self.rsi_overbought:
+                logger.info(f"🔴 收盤價漲破上軌 + RSI {last_rsi:.1f} > {self.rsi_overbought}(超買),觸發做空訊號")
+                return Signal.SHORT
+        else:
+            if position.side == "LONG" and last_close >= last_sma:
+                logger.info("📈 多單價格已回到中軌,觸發平倉訊號(均值回歸完成)")
+                return Signal.CLOSE
+            if position.side == "SHORT" and last_close <= last_sma:
+                logger.info("📉 空單價格已回到中軌,觸發平倉訊號(均值回歸完成)")
+                return Signal.CLOSE
+
+        return Signal.HOLD
+
+
+# ---------------------------------------------------------------------------
+# 紙交易帳戶 (Paper Trading) - 不呼叫真實下單 API,純本機模擬損益
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _PaperPosition:
+    side: str = "NONE"
+    quantity: float = 0.0
+    entry_price: float = 0.0
+    entry_time: str = ""
+    entry_fee: float = 0.0
+    best_price: float = 0.0  # 移動停利用:多單記錄進場以來的最高價,空單記錄最低價
+
+
+@dataclass
+class TradeRecord:
+    symbol: str
+    side: str
+    entry_price: float
+    exit_price: float
+    quantity: float
+    entry_time: str
+    exit_time: str
+    pnl: float  # 淨損益(已扣進出場兩邊手續費)
+    fee: float  # 這筆交易的進出場手續費總和
+    reason: str
+
+
+class PaperAccount:
+    """
+    一個共用餘額的紙交易帳戶,底下每個交易對各自獨立持倉(如同一個帳戶同時開多個倉位)。
+    開倉、平倉都會依 fee_pct 收取模擬手續費(單邊費率,跟幣安合約 Taker 費率一樣算在
+    名目價值上),累積已實現損益(realized_pnl)已經是「扣掉手續費之後」的淨額。
+    每筆平倉都會記錄一筆 TradeRecord 到 trade_history,供歷史紀錄查詢/下載使用。
+
+    每個「倉位槽」用 (symbol, slot) 當 key。單向模式(HEDGE_MODE=false)一律只用
+    slot="BOTH" 這一個槽,跟幣安帳戶本身在單向模式下 positionSide 固定回傳 "BOTH"
+    是同一個概念,行為等同以前只有一個持倉欄位的版本。雙向模式(HEDGE_MODE=true)則是
+    slot="LONG" 和 slot="SHORT" 各自獨立的兩個槽,可以同時各自持有多單、空單。
+    """
+
+    def __init__(self, starting_balance: float, symbols: List[str], fee_pct: float = 0.0):
+        self.balance = starting_balance
+        self.realized_pnl = 0.0
+        self.total_fees = 0.0
+        self.fee_pct = fee_pct
+        self.positions: Dict[tuple, _PaperPosition] = {}
+        self.trade_history: List[TradeRecord] = []
+
+    def position(self, symbol: str, slot: str) -> _PaperPosition:
+        key = (symbol, slot)
+        if key not in self.positions:
+            self.positions[key] = _PaperPosition()
+        return self.positions[key]
+
+    def unrealized_pnl(self, symbol: str, slot: str, current_price: float) -> float:
+        p = self.position(symbol, slot)
+        if p.side == "NONE":
+            return 0.0
+        diff = current_price - p.entry_price
+        if p.side == "SHORT":
+            diff = -diff
+        return diff * p.quantity
+
+    def open(self, symbol: str, slot: str, side: str, quantity: float, price: float) -> float:
+        fee = quantity * price * self.fee_pct
+        self.balance -= fee
+        self.total_fees += fee
+        p = self.position(symbol, slot)
+        p.side = side
+        p.quantity = quantity
+        p.entry_price = price
+        p.entry_time = datetime.now(timezone.utc).isoformat()
+        p.entry_fee = fee
+        p.best_price = price  # 移動停利的追蹤起點就是進場價
+        return fee
+
+    def update_trailing_peak(self, symbol: str, slot: str, price_high: float, price_low: float) -> float:
+        """
+        更新這個倉位「進場以來最有利的價格」(多單只會往上棘輪、空單只會往下棘輪,
+        絕對不會往回退),回傳更新後的最佳價格。沒有倉位就回傳 0.0。
+        """
+        p = self.position(symbol, slot)
+        if p.side == "NONE":
+            return 0.0
+        if p.side == "LONG":
+            p.best_price = max(p.best_price, price_high)
+        else:
+            p.best_price = min(p.best_price, price_low)
+        return p.best_price
+
+    def close(self, symbol: str, slot: str, price: float, reason: str = "策略訊號") -> float:
+        """平倉,回傳「扣掉本次平倉手續費之後」的淨損益(開倉手續費已經在 open() 時扣過)。"""
+        p = self.position(symbol, slot)
+        gross_pnl = self.unrealized_pnl(symbol, slot, price)
+        exit_fee = p.quantity * price * self.fee_pct
+        net_pnl = gross_pnl - exit_fee
+        self.balance += net_pnl
+        self.realized_pnl += net_pnl
+        self.total_fees += exit_fee
+
+        self.trade_history.append(TradeRecord(
+            symbol=symbol, side=p.side, entry_price=p.entry_price, exit_price=price,
+            quantity=p.quantity, entry_time=p.entry_time,
+            exit_time=datetime.now(timezone.utc).isoformat(),
+            pnl=net_pnl, fee=p.entry_fee + exit_fee, reason=reason,
+        ))
+
+        p.side = "NONE"
+        p.quantity = 0.0
+        p.entry_price = 0.0
+        p.entry_time = ""
+        p.entry_fee = 0.0
+        p.best_price = 0.0
+        return net_pnl
+
+
+# ---------------------------------------------------------------------------
+# 機器人主體
+# ---------------------------------------------------------------------------
+
+class BinanceFuturesBot:
+    def __init__(self, config: Config, strategy: Strategy):
+        self.config = config
+        self.strategy = strategy
+        self._stop_event = threading.Event()
+        # 保護所有會實際改變倉位狀態的動作(開倉/平倉),避免主迴圈執行緒跟網頁的
+        # 「手動平倉」API 請求執行緒同時動到同一筆倉位,造成重複平倉之類的競態問題。
+        self._trading_lock = threading.Lock()
+
+        self._status_lock = threading.Lock()
+        self._status = {
+            "started_at": None,
+            "last_update": None,
+            "balance": None,
+            "symbols": {
+                s: {"market": None, "positions": {}, "error": None}
+                for s in config.symbols
+            },
+        }
+
+        # 即使是紙交易模式,client 仍會用來讀取「公開」行情資料(K 線、現價、標記價格、
+        # 交易對精度),這些端點不需要簽章驗證,即使沒有填 API Key 也能正常呼叫。
+        #
+        # 紙交易模式刻意「不」連測試網:紙交易從頭到尾都不會真的下單,不需要測試網的
+        # 沙盒帳戶,而測試網的公開行情(尤其標記價格 K 線)常常是稀疏、不即時甚至整段
+        # 時間卡住不動的假資料,拿來模擬損益會失真,跟真實市場的落差反而更大。所以
+        # 這裡不能只是把 FUTURES_URL 這個字串改掉 - python-binance 內部的
+        # _create_futures_api_uri() 是直接看 client.testnet 這個布林旗標來決定要不要
+        # 導去測試網網址,不管 FUTURES_URL 被覆寫成什麼都一樣會被導去測試網,所以必須
+        # 在建立 Client 的當下就不要傳 testnet=True 進去。BINANCE_TESTNET 只影響
+        # PAPER_TRADING=false 之後真正下單的環境。
+        use_testnet_client = config.testnet and not config.paper_trading
+        self.client = Client(config.api_key, config.api_secret, testnet=use_testnet_client)
+
+        self._qty_step: Dict[str, Decimal] = {}
+        self._price_tick: Dict[str, Decimal] = {}
+
+        self.paper_account: Optional[PaperAccount] = (
+            PaperAccount(config.paper_starting_balance, config.symbols, config.fee_pct) if config.paper_trading else None
+        )
+
+        if config.paper_trading:
+            mode = f"紙交易 (Paper Trading, 共用虛擬本金 {config.paper_starting_balance} USDT, 行情來源: 正式環境公開資料)"
+            dry = "不會呼叫任何真實下單 API"
+        else:
+            mode = "測試網 (Testnet)" if config.testnet else "正式環境 (LIVE)"
+            dry = "DRY_RUN 模擬模式(不會真的下單)" if config.dry_run else "真實下單模式"
+        logger.info(f"⚡ 初始化完成 | 環境: {mode} | 下單模式: {dry} | 交易對: {', '.join(config.symbols)}")
+        if not config.paper_trading and not config.testnet and not config.dry_run:
+            logger.warning("⚠️ 目前為正式環境 + 真實下單模式,任何訊號都會動用真實資金,請確認策略已充分測試!")
+
+    # -- 初始化 ------------------------------------------------------------
+
+    def setup(self):
+        """設定每個交易對的槓桿、保證金模式,並快取數量/價格精度。"""
+        symbols = self.config.symbols
+
+        if self.config.paper_trading:
+            logger.info("📝 紙交易模式:略過槓桿/保證金/持倉模式 API 設定(無需連接真實帳戶)")
+        else:
+            try:
+                self.client.futures_change_position_mode(dualSidePosition=self.config.hedge_mode)
+                logger.info(f"✅ 帳戶持倉模式設定為 {'雙向持倉 (Hedge Mode)' if self.config.hedge_mode else '單向持倉'}")
+            except BinanceAPIException as e:
+                # -4059 = No need to change position side,代表已經是目標模式
+                if getattr(e, "code", None) != -4059:
+                    logger.warning(f"持倉模式設定提醒: {e}")
+
+            for symbol in symbols:
+                try:
+                    self.client.futures_change_leverage(symbol=symbol, leverage=self.config.leverage)
+                    logger.info(f"✅ 槓桿設定為 {self.config.leverage}x ({symbol})")
+                except BinanceAPIException as e:
+                    logger.warning(f"槓桿設定提醒(若已是相同倍數可忽略,{symbol}): {e}")
+
+                try:
+                    self.client.futures_change_margin_type(symbol=symbol, marginType=self.config.margin_type)
+                    logger.info(f"✅ 保證金模式設定為 {self.config.margin_type} ({symbol})")
+                except BinanceAPIException as e:
+                    # -4046 = No need to change margin type,代表已經是目標模式
+                    if getattr(e, "code", None) != -4046:
+                        logger.warning(f"保證金模式設定提醒 ({symbol}): {e}")
+
+        # 交易對精度是公開資料,一次呼叫拿回所有交易對,紙交易/真實交易都需要,且不需要驗證 API Key
+        info = self.client.futures_exchange_info()
+        info_by_symbol = {s["symbol"]: s for s in info["symbols"]}
+
+        for symbol in symbols:
+            symbol_info = info_by_symbol.get(symbol)
+            if symbol_info is None:
+                raise RuntimeError(f"在交易所找不到交易對 {symbol}")
+
+            for f in symbol_info["filters"]:
+                if f["filterType"] == "LOT_SIZE":
+                    self._qty_step[symbol] = Decimal(f["stepSize"])
+                elif f["filterType"] == "PRICE_FILTER":
+                    self._price_tick[symbol] = Decimal(f["tickSize"])
+
+            logger.info(
+                f"✅ {symbol} 精度已快取 | 數量最小單位: {self._qty_step[symbol]} | "
+                f"價格最小單位: {self._price_tick[symbol]}"
+            )
+
+    # -- 精度處理 ------------------------------------------------------------
+
+    def _round_step(self, value: float, step: Decimal) -> float:
+        d = Decimal(str(value))
+        rounded = (d / step).to_integral_value(rounding=ROUND_DOWN) * step
+        return float(rounded)
+
+    def _round_qty(self, symbol: str, qty: float) -> float:
+        step = self._qty_step.get(symbol)
+        if step is None:
+            return qty
+        return self._round_step(qty, step)
+
+    def _round_price(self, symbol: str, price: float) -> float:
+        tick = self._price_tick.get(symbol)
+        if tick is None:
+            return price
+        return self._round_step(price, tick)
+
+    # -- 查詢 ------------------------------------------------------------
+
+    def get_balance_usdt(self) -> float:
+        if self.config.paper_trading:
+            return self.paper_account.balance
+        balances = self.client.futures_account_balance()
+        for b in balances:
+            if b["asset"] == "USDT":
+                return float(b["balance"])
+        return 0.0
+
+    def get_market_snapshot(self, symbol: str) -> MarketSnapshot:
+        ticker = self.client.futures_symbol_ticker(symbol=symbol)
+        klines = self.client.futures_klines(
+            symbol=symbol, interval=self.config.kline_interval, limit=100
+        )
+        return MarketSnapshot(symbol=symbol, price=float(ticker["price"]), klines=klines)
+
+    def get_mark_price(self, symbol: str) -> float:
+        return float(self.client.futures_mark_price(symbol=symbol)["markPrice"])
+
+    def get_recent_mark_price_range(self, symbol: str, minutes: int = 5) -> tuple:
+        """
+        回傳最近 N 分鐘標記價格的 (最高, 最低)。真實下單時止損/移動停利是掛在交易所上的
+        STOP_MARKET/TRAILING_STOP_MARKET(標記價格觸發),只要價格「曾經」碰到就會成交,
+        不是只看某個時間點的價格;紙交易用輪詢模擬,如果只比對「這次輪詢當下」的價格,
+        兩次輪詢之間的插針會被錯過,跟真實下單的行為會有落差。用最近幾分鐘的高低區間
+        去檢查,才能貼近「價格曾經觸及」這件事,縮小紙交易與真實下單的差異。
+        """
+        klines = self.client.futures_mark_price_klines(symbol=symbol, interval="1m", limit=minutes)
+        highs = [float(k[2]) for k in klines]
+        lows = [float(k[3]) for k in klines]
+        return max(highs), min(lows)
+
+    def slot_for(self, side: str) -> str:
+        """單向模式一律只有一個倉位槽("BOTH"),雙向模式才會分成獨立的 LONG / SHORT 槽。"""
+        return side if self.config.hedge_mode else "BOTH"
+
+    def get_position(self, symbol: str, slot: str, current_price: Optional[float] = None) -> PositionInfo:
+        if self.config.paper_trading:
+            p = self.paper_account.position(symbol, slot)
+            upnl = self.paper_account.unrealized_pnl(symbol, slot, current_price) if current_price is not None else 0.0
+            return PositionInfo(
+                symbol=symbol, side=p.side, quantity=p.quantity,
+                entry_price=p.entry_price, unrealized_pnl=upnl,
+            )
+
+        positions = self.client.futures_position_information(symbol=symbol)
+        for p in positions:
+            # 單向帳戶回傳的 positionSide 固定是 "BOTH";雙向帳戶則是 "LONG"/"SHORT",
+            # 要挑對應的那一筆,不能兩種槽都拿同一筆資料。
+            if p.get("positionSide", "BOTH") != slot:
+                continue
+            amt = float(p["positionAmt"])
+            if amt != 0:
+                side = "LONG" if amt > 0 else "SHORT"
+                return PositionInfo(
+                    symbol=symbol,
+                    side=side,
+                    quantity=abs(amt),
+                    entry_price=float(p["entryPrice"]),
+                    unrealized_pnl=float(p["unRealizedProfit"]),
+                )
+        return PositionInfo(symbol=symbol, side="NONE", quantity=0.0, entry_price=0.0, unrealized_pnl=0.0)
+
+    # -- 下單 ------------------------------------------------------------
+
+    def calc_quantity(self, symbol: str, price: float) -> float:
+        """
+        投入本金 = min(帳戶餘額 * 風險比例, MAX_MARGIN_PER_TRADE_USDT) - 兩個條件都要滿足,
+        確保帳戶餘額再怎麼大,單筆交易投入的本金也不會超過這個硬上限。
+        下單數量 = 投入本金 * 槓桿 / 現價,再對齊交易所精度。
+        """
+        balance = self.get_balance_usdt()
+        margin = min(balance * self.config.risk_pct_per_trade, self.config.max_margin_per_trade)
+        notional = margin * self.config.leverage
+        raw_qty = notional / price
+        qty = self._round_qty(symbol, raw_qty)
+        if qty <= 0:
+            logger.warning(
+                f"⚠️ 計算出的下單數量為 0(餘額 {balance} USDT、風險比例 {self.config.risk_pct_per_trade}、"
+                f"投入本金上限 {self.config.max_margin_per_trade} USDT、槓桿 {self.config.leverage}x),"
+                f"請確認帳戶餘額或風險參數設定。"
+            )
+        return qty
+
+    def _submit_order(self, **kwargs):
+        if self.config.dry_run:
+            logger.info(f"[DRY_RUN] 模擬下單,不會實際送出: {kwargs}")
+            return None
+        try:
+            order = self.client.futures_create_order(**kwargs)
+            logger.info(f"✅ 下單成功: {order}")
+            return order
+        except (BinanceAPIException, BinanceOrderException) as e:
+            logger.error(f"❌ 下單失敗: {e}")
+            return None
+
+    def open_position(self, side: Signal, market: MarketSnapshot):
+        symbol = market.symbol
+        slot = self.slot_for(side.value)
+        qty = self.calc_quantity(symbol, market.price)
+        if qty <= 0:
+            return
+
+        logger.info(f"✨ [{symbol}][{slot}] 觸發 {side.value} 訊號,準備開倉 | 數量: {qty} | 參考價: {market.price}")
+
+        if self.config.paper_trading:
+            fee = self.paper_account.open(symbol, slot, side.value, qty, market.price)
+            logger.info(
+                f"[紙交易][{symbol}][{slot}] 已模擬開倉 {side.value} {qty} @ {market.price} | "
+                f"手續費 -{fee:.4f} USDT | 帳戶餘額: {self.paper_account.balance:.4f} USDT"
+            )
+            return
+
+        order_side = "BUY" if side == Signal.LONG else "SELL"
+        entry_kwargs = dict(symbol=symbol, side=order_side, type="MARKET", quantity=qty)
+        if self.config.hedge_mode:
+            entry_kwargs["positionSide"] = slot
+        self._submit_order(**entry_kwargs)
+
+        if self.config.stop_loss_pct > 0:
+            sl_side = "SELL" if side == Signal.LONG else "BUY"
+            sl_price = market.price * (1 - self.config.stop_loss_pct) if side == Signal.LONG \
+                else market.price * (1 + self.config.stop_loss_pct)
+            sl_price = self._round_price(symbol, sl_price)
+            logger.info(f"🛡️ [{symbol}][{slot}] 掛設止損: {sl_price}(以標記價格觸發,防止插針誤觸)")
+            sl_kwargs = dict(
+                symbol=symbol, side=sl_side, type="STOP_MARKET",
+                stopPrice=sl_price, workingType="MARK_PRICE",
+            )
+            if self.config.hedge_mode:
+                sl_kwargs["positionSide"] = slot  # 雙向模式不能同時帶 closePosition + positionSide 用 quantity 取代
+                sl_kwargs["quantity"] = qty
+            else:
+                sl_kwargs["closePosition"] = True
+            self._submit_order(**sl_kwargs)
+
+        if self.config.trailing_stop_pct > 0:
+            tp_side = "SELL" if side == Signal.LONG else "BUY"
+            # 幣安的 callbackRate 是百分比數字(1 代表 1%),範圍 0.1~5,跟我們內部用小數
+            # 表示比例(0.0025 代表 0.25%)不同,下單前要換算。
+            callback_rate = round(self.config.trailing_stop_pct * 100, 1)
+            logger.info(f"🎯 [{symbol}][{slot}] 掛設移動停利: callbackRate={callback_rate}%(以標記價格啟動,防止插針誤觸)")
+            tp_kwargs = dict(
+                symbol=symbol, side=tp_side, type="TRAILING_STOP_MARKET",
+                callbackRate=callback_rate, workingType="MARK_PRICE",
+            )
+            if self.config.hedge_mode:
+                tp_kwargs["positionSide"] = slot
+                tp_kwargs["quantity"] = qty
+            else:
+                tp_kwargs["closePosition"] = True
+            self._submit_order(**tp_kwargs)
+
+    def check_paper_stop_loss(self, position: PositionInfo,
+                               price_high: float, price_low: float) -> Optional[str]:
+        """
+        檢查紙交易持倉是否觸及模擬止損,回傳 "STOP_LOSS" 或 None。
+        用區間高/低點(而不是單一時間點的價格)判斷,盡量貼近真實下單「掛在交易所、價格
+        曾經觸及就成交」的行為。
+        """
+        if not position.is_open or self.config.stop_loss_pct <= 0:
+            return None
+        entry = position.entry_price
+        if position.side == "LONG":
+            if price_low <= entry * (1 - self.config.stop_loss_pct):
+                return "STOP_LOSS"
+        else:  # SHORT
+            if price_high >= entry * (1 + self.config.stop_loss_pct):
+                return "STOP_LOSS"
+        return None
+
+    def check_paper_trailing_stop(self, symbol: str, slot: str, position: PositionInfo,
+                                   price_high: float, price_low: float) -> Optional[str]:
+        """
+        更新這個倉位「進場以來最有利的價格」,並檢查是否從那個高點/低點回落超過
+        TRAILING_STOP_PCT,回傳 "TRAILING_STOP" 或 None。多單只看最高價之後的回落,
+        空單只看最低價之後的反彈,兩者都是「利潤縮水超過設定幅度就先落袋」的邏輯。
+        """
+        if not position.is_open or self.config.trailing_stop_pct <= 0:
+            return None
+        best_price = self.paper_account.update_trailing_peak(symbol, slot, price_high, price_low)
+        if best_price <= 0:
+            return None
+        if position.side == "LONG":
+            trail_stop_price = best_price * (1 - self.config.trailing_stop_pct)
+            if price_low <= trail_stop_price:
+                return "TRAILING_STOP"
+        else:  # SHORT
+            trail_stop_price = best_price * (1 + self.config.trailing_stop_pct)
+            if price_high >= trail_stop_price:
+                return "TRAILING_STOP"
+        return None
+
+    def close_position(self, position: PositionInfo, market: Optional[MarketSnapshot] = None,
+                        reason: str = "策略訊號"):
+        # position.is_open 是呼叫當下的快照;只信任這個旗標就好,不要在呼叫端另外快取
+        # 舊的 position 物件重複呼叫這裡 - 這個判斷式就是唯一防止重複平倉的關卡。
+        if not position.is_open:
+            return
+        symbol = position.symbol
+        slot = self.slot_for(position.side)
+        close_side = "SELL" if position.side == "LONG" else "BUY"
+
+        logger.info(f"🛑 [{symbol}][{slot}] 觸發平倉 ({reason}),準備清空 {position.side} 倉位 (數量 {position.quantity})")
+
+        if self.config.paper_trading:
+            price = market.price if market is not None else position.entry_price
+            pnl = self.paper_account.close(symbol, slot, price, reason=reason)
+            logger.info(f"[紙交易][{symbol}][{slot}] 已模擬平倉 @ {price} | 本次損益: {pnl:+.4f} USDT | 帳戶餘額: {self.paper_account.balance:.4f} USDT")
+            return
+
+        if not self.config.dry_run and not self.config.hedge_mode:
+            # 雙向模式下,同一個交易對的多單/空單各自獨立,不能整批撤單,
+            # 否則會連另一個方向還在用的止損止盈單也一起撤掉。
+            try:
+                self.client.futures_cancel_all_open_orders(symbol=symbol)
+            except BinanceAPIException as e:
+                logger.warning(f"撤銷掛單提醒: {e}")
+
+        close_kwargs = dict(symbol=symbol, side=close_side, type="MARKET", quantity=position.quantity)
+        if self.config.hedge_mode:
+            close_kwargs["positionSide"] = slot
+        else:
+            close_kwargs["reduceOnly"] = True
+        self._submit_order(**close_kwargs)
+
+    # -- 狀態(供網頁儀表板讀取) ---------------------------------------------
+
+    def _now_iso(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def _update_symbol_status(self, symbol: str,
+                               slot: Optional[str] = None,
+                               market: Optional[MarketSnapshot] = None,
+                               position: Optional[PositionInfo] = None,
+                               last_signal: Optional[str] = None,
+                               error: Optional[str] = None):
+        """
+        slot=None 只更新市況/錯誤,不動任何倉位槽的資料(例如例外處理路徑)。
+        slot 有值時,更新的是 positions[slot] 這一個槽 - 單向模式一律是 "BOTH",
+        雙向模式是 "LONG" 或 "SHORT",讓同一個 symbol 底下可以同時存在兩個獨立倉位的狀態。
+        """
+        with self._status_lock:
+            entry = self._status["symbols"].setdefault(
+                symbol, {"market": None, "positions": {}, "error": None}
+            )
+            if market is not None:
+                entry["market"] = {"symbol": market.symbol, "price": market.price}
+            if slot is not None:
+                slot_entry = entry["positions"].setdefault(slot, {"position": None, "last_signal": None})
+                if position is not None:
+                    slot_entry["position"] = asdict(position)
+                if last_signal is not None:
+                    slot_entry["last_signal"] = last_signal
+            entry["error"] = error
+
+    def get_status_snapshot(self) -> dict:
+        with self._status_lock:
+            balance = self._status["balance"]
+            last_update = self._status["last_update"]
+            started_at = self._status["started_at"]
+            symbols_status = {
+                k: {"market": v["market"], "error": v["error"],
+                    "positions": {sk: dict(sv) for sk, sv in v["positions"].items()}}
+                for k, v in self._status["symbols"].items()
+            }
+        return {
+            "symbol_list": self.config.symbols,
+            "paper_trading": self.config.paper_trading,
+            "testnet": self.config.testnet,
+            "dry_run": self.config.dry_run,
+            "leverage": self.config.leverage,
+            "margin_type": self.config.margin_type,
+            "kline_interval": self.config.kline_interval,
+            "poll_interval_sec": self.config.poll_interval_sec,
+            "hedge_mode": self.config.hedge_mode,
+            "running": not self._stop_event.is_set(),
+            "started_at": started_at,
+            "last_update": last_update,
+            "balance": balance,
+            "realized_pnl": self.paper_account.realized_pnl if self.paper_account is not None else None,
+            "total_fees": self.paper_account.total_fees if self.paper_account is not None else None,
+            "symbols": symbols_status,
+        }
+
+    def get_trade_history(self) -> List[dict]:
+        """回傳紙交易的歷史成交紀錄(list of dict);真實/測試網模式目前沒有本機交易紀錄,回傳空清單。"""
+        if self.paper_account is None:
+            return []
+        return [asdict(t) for t in self.paper_account.trade_history]
+
+    def manual_close(self, symbol: str, slot: str) -> dict:
+        """
+        供網頁「手動平倉」按鈕呼叫:立即用目前市價平掉該倉位槽,不受策略邏輯影響。
+        slot:單向模式一律傳 "BOTH";雙向模式傳 "LONG" 或 "SHORT",指定要平哪一邊。
+        """
+        if symbol not in self.config.symbols:
+            return {"ok": False, "message": f"{symbol} 不在目前追蹤的交易對清單裡。"}
+
+        with self._trading_lock:
+            market = self.get_market_snapshot(symbol)
+            position = self.get_position(symbol, slot, market.price)
+            if not position.is_open:
+                return {"ok": False, "message": f"{symbol} [{slot}] 目前沒有持倉,無需平倉。"}
+
+            logger.info(f"🖱️ [{symbol}][{slot}] 收到手動平倉指令")
+            self.close_position(position, market, reason="手動平倉")
+            final_position = self.get_position(symbol, slot, market.price)
+
+        self._update_symbol_status(symbol, slot=slot, market=market, position=final_position, last_signal="手動平倉")
+        return {"ok": True, "message": f"{symbol} [{slot}] 已手動平倉。"}
+
+    def manual_open(self, symbol: str, side: str) -> dict:
+        """
+        供網頁「手動開多/開空」按鈕呼叫:不管策略當下判斷什麼,直接依指定方向開倉。
+        單向模式下如果已經持有反方向倉位,會擋下來(單向模式同一時間只能有一個方向);
+        雙向模式下多單、空單各自獨立,只看該方向自己的槽有沒有已經開倉。
+        """
+        if symbol not in self.config.symbols:
+            return {"ok": False, "message": f"{symbol} 不在目前追蹤的交易對清單裡。"}
+        if side not in ("LONG", "SHORT"):
+            return {"ok": False, "message": "方向必須是 LONG 或 SHORT。"}
+
+        signal = Signal.LONG if side == "LONG" else Signal.SHORT
+        slot = self.slot_for(side)
+
+        with self._trading_lock:
+            market = self.get_market_snapshot(symbol)
+            position = self.get_position(symbol, slot, market.price)
+            if position.is_open:
+                return {"ok": False, "message": f"{symbol} [{slot}] 已經有 {position.side} 持倉,請先平倉再開新倉。"}
+
+            logger.info(f"🖱️ [{symbol}][{slot}] 收到手動開倉指令 ({side})")
+            self.open_position(signal, market)
+            final_position = self.get_position(symbol, slot, market.price)
+
+        self._update_symbol_status(symbol, slot=slot, market=market, position=final_position, last_signal=f"手動開倉({side})")
+        return {"ok": True, "message": f"{symbol} [{slot}] 已手動開 {side}。"}
+
+    # -- 主迴圈 ------------------------------------------------------------
+
+    def stop(self):
+        logger.info("收到停止訊號,機器人將於本輪結束後安全停止...")
+        self._stop_event.set()
+
+    def _process_slot(self, symbol: str, slot: str, market: MarketSnapshot) -> tuple:
+        """
+        處理單一個倉位槽這一輪的「查詢持倉 -> 止損止盈檢查 -> 策略判斷 -> 開倉/平倉 ->
+        再查一次最新狀態」,回傳 (final_position, last_signal_text)。呼叫端要負責包好
+        _trading_lock,這裡不重複上鎖。
+
+        單向模式只有一個槽("BOTH"),行為跟改雙向持倉之前完全一樣。雙向模式下,同一個
+        策略邏輯會分別用「多單視角」「空單視角」對同一個 symbol 各呼叫一次 on_tick():
+        策略本身完全不知道有幾個槽,只看得到「傳進來的這個槽現在是不是有倉位」。如果
+        策略回傳的進場方向跟這個槽對不上(例如用空單視角呼叫,但市場其實是黃金交叉、
+        策略判斷要開多),代表這個結果屬於「另一個槽」該處理的訊號,這裡直接忽略即可 -
+        另一個槽會有自己的一次呼叫拿到正確結果,不會漏掉。
+        """
+        position = self.get_position(symbol, slot, market.price)
+
+        # 紙交易的模擬止損/移動停利:每輪先檢查一次,用「標記價格」的區間高低點判斷(跟
+        # 真實下單的 STOP_MARKET/TRAILING_STOP_MARKET 一樣用標記價格觸發,盡量縮小紙交易
+        # 與真實下單之間的落差)。止損優先於移動停利檢查(保守,寧可提早停損也不要為了
+        # 讓移動停利數字好看而拖遲)。若觸發就直接平倉並「重新查詢」position(而不是沿用
+        # 手上這個已經過期的物件),確保稍後呼叫策略、甚至策略也回傳 CLOSE 時,
+        # close_position() 看到的都是「已經沒有倉位」的最新狀態,不會對同一個倉位重複平倉。
+        #
+        # 移動停利的「追蹤最佳價格」每輪都要更新棘輪,即使這次沒觸發也一樣,所以只要
+        # TRAILING_STOP_PCT > 0 且有倉位,就一定要呼叫 check_paper_trailing_stop() 讓它去
+        # 更新棘輪 - 不能因為已經確定不會觸發就跳過呼叫。
+        risk_exit_reason = None
+        has_paper_stop_config = self.config.stop_loss_pct > 0 or self.config.trailing_stop_pct > 0
+        if self.config.paper_trading and position.is_open and has_paper_stop_config:
+            price_high, price_low = self.get_recent_mark_price_range(symbol)
+            risk_exit_reason = self.check_paper_stop_loss(position, price_high, price_low)
+            if risk_exit_reason is None:
+                risk_exit_reason = self.check_paper_trailing_stop(symbol, slot, position, price_high, price_low)
+            if risk_exit_reason is not None:
+                mark_price = self.get_mark_price(symbol)
+                close_market = MarketSnapshot(symbol=symbol, price=mark_price, klines=[])
+                self.close_position(position, close_market, reason=risk_exit_reason)
+                position = self.get_position(symbol, slot, market.price)
+
+        signal = self.strategy.on_tick(market, position)
+
+        if risk_exit_reason is not None:
+            pass  # 本輪已經因為止損/止盈平倉,不再套用策略訊號
+        elif signal == Signal.HOLD:
+            pass
+        elif signal == Signal.CLOSE:
+            if position.is_open:
+                self.close_position(position, market)
+        elif signal in (Signal.LONG, Signal.SHORT):
+            target_slot = self.slot_for(signal.value)
+            if target_slot != slot:
+                pass  # 這個進場訊號屬於另一個槽,不是這次呼叫該處理的
+            elif position.is_open:
+                logger.info(f"[{symbol}][{slot}] 已有 {position.side} 持倉,忽略新的 {signal.value} 訊號")
+            else:
+                self.open_position(signal, market)
+
+        final_position = self.get_position(symbol, slot, market.price)
+        return final_position, (risk_exit_reason or signal.value)
+
+    def run(self):
+        self._stop_event.clear()
+        with self._status_lock:
+            self._status["started_at"] = self._now_iso()
+
+        mode_desc = "雙向持倉(多空可同時進場)" if self.config.hedge_mode else "單向持倉"
+        logger.info(f"🤖 機器人開始運行 | 交易對: {', '.join(self.config.symbols)} | "
+                    f"週期: {self.config.kline_interval} | 輪詢間隔: {self.config.poll_interval_sec}s | "
+                    f"{mode_desc}")
+
+        slots = ("LONG", "SHORT") if self.config.hedge_mode else ("BOTH",)
+
+        while not self._stop_event.is_set():
+            for symbol in self.config.symbols:
+                try:
+                    market = self.get_market_snapshot(symbol)
+
+                    # 這個 symbol 這一輪、所有倉位槽的「查詢持倉 -> 判斷 -> 開倉/平倉」都用
+                    # _trading_lock 包起來,避免跟網頁「手動平倉/手動開倉」API 請求同時動到
+                    # 同一筆倉位(例如剛好同時各自平倉一次,造成重複平倉)。
+                    with self._trading_lock:
+                        results = [(slot, *self._process_slot(symbol, slot, market)) for slot in slots]
+
+                    for slot, final_position, signal_text in results:
+                        self._update_symbol_status(
+                            symbol, slot=slot, market=market,
+                            position=final_position, last_signal=signal_text,
+                        )
+
+                except BinanceAPIException as e:
+                    logger.error(f"❌ [{symbol}] Binance API 錯誤: {e}")
+                    self._update_symbol_status(symbol, error=str(e))
+                except Exception as e:
+                    logger.error(f"❌ [{symbol}] 主迴圈發生未預期錯誤: {e}", exc_info=True)
+                    self._update_symbol_status(symbol, error=str(e))
+
+            # 餘額放在這一輪所有幣種的開倉/平倉動作都做完後才查詢,理由跟上面
+            # final_position 一樣:避免這一輪剛扣的手續費/損益還沒反映在畫面上。
+            try:
+                balance = self.get_balance_usdt()
+                with self._status_lock:
+                    self._status["balance"] = balance
+                    self._status["last_update"] = self._now_iso()
+            except Exception as e:
+                logger.error(f"❌ 查詢帳戶餘額失敗: {e}")
+
+            self._stop_event.wait(self.config.poll_interval_sec)
+
+        logger.info("機器人已停止。")
+
+
+# ---------------------------------------------------------------------------
+# 網頁儀表板
+# ---------------------------------------------------------------------------
+
+_DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>新幣安 - 機器人儀表板</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif;
+         background: #f5f6f8; color: #1f2328; margin: 0; padding: 2rem; }
+  h1 { font-size: 1.3rem; margin-bottom: 1.5rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+  .card { background: #ffffff; border: 1px solid #e2e5ea; border-radius: 8px; padding: 1rem;
+          box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .card .label { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
+  .card .value { font-size: 1.4rem; margin-top: .3rem; font-weight: 600; }
+  .badge { display: inline-block; padding: .15rem .5rem; border-radius: 4px; font-size: .75rem; }
+  .badge.on { background: #dcfce7; color: #16a34a; }
+  .badge.off { background: #fee2e2; color: #dc2626; }
+  .side-LONG { color: #16a34a; }
+  .side-SHORT { color: #dc2626; }
+  .side-NONE { color: #6b7280; }
+  .pnl-pos { color: #16a34a; }
+  .pnl-neg { color: #dc2626; }
+  .symbol-section { margin-top: 2rem; }
+  .symbol-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1rem; }
+  .symbol-section h2 { font-size: 1.05rem; margin: 0; }
+  .slot-block { margin-top: 1rem; }
+  .slot-block:first-of-type { margin-top: 0; }
+  .slot-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
+  .slot-title { font-size: .78rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
+  .slot-actions { display: flex; gap: .5rem; }
+  .close-btn { background: #fee2e2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 6px;
+               padding: .4rem .9rem; font-size: .82rem; cursor: pointer; font-weight: 600; }
+  .close-btn:hover { background: #fecaca; }
+  .close-btn:disabled { opacity: .5; cursor: default; }
+  .open-btn { border-radius: 6px; padding: .4rem .9rem; font-size: .82rem; cursor: pointer;
+              font-weight: 600; border: 1px solid; }
+  .open-btn-LONG { background: #dcfce7; border-color: #bbf7d0; color: #16a34a; }
+  .open-btn-LONG:hover { background: #bbf7d0; }
+  .open-btn-SHORT { background: #fee2e2; border-color: #fecaca; color: #dc2626; }
+  .open-btn-SHORT:hover { background: #fecaca; }
+  .symbol-error { margin-top: .5rem; padding: .6rem .8rem; background: #fee2e2; border-radius: 6px;
+                  color: #b91c1c; font-size: .8rem; white-space: pre-wrap; }
+  .updated { margin-top: 2rem; font-size: .8rem; color: #9ca3af; }
+  .history-section { margin-top: 2rem; }
+  .history-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem; }
+  .history-header h2 { font-size: 1.05rem; margin: 0; }
+  .download-btn { background: #ffffff; border: 1px solid #e2e5ea; border-radius: 6px; padding: .4rem .9rem;
+                   font-size: .85rem; color: #1f2328; text-decoration: none; }
+  .download-btn:hover { background: #f5f6f8; }
+  .table-wrap { overflow-x: auto; background: #ffffff; border: 1px solid #e2e5ea; border-radius: 8px; }
+  table.trades { width: 100%; border-collapse: collapse; font-size: .82rem; white-space: nowrap; }
+  table.trades th, table.trades td { padding: .5rem .75rem; text-align: left; border-bottom: 1px solid #eef0f3; }
+  table.trades th { color: #6b7280; font-weight: 600; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; }
+  table.trades tr:last-child td { border-bottom: none; }
+  .empty-note { padding: 1rem; color: #9ca3af; font-size: .85rem; }
+</style>
+</head>
+<body>
+  <h1>新幣安 機器人儀表板</h1>
+  <div class="grid" id="summary"></div>
+  <div id="symbols"></div>
+
+  <div class="history-section">
+    <div class="history-header">
+      <h2>交易紀錄</h2>
+      <a class="download-btn" href="/api/trades.csv" download>下載 CSV</a>
+    </div>
+    <div class="table-wrap" id="tradesWrap"></div>
+  </div>
+
+  <div class="updated" id="updated"></div>
+
+<script>
+async function manualClose(symbol, slot) {
+  if (!confirm(`確定要手動平倉 ${symbol} [${slot}] 嗎?`)) return;
+  try {
+    const res = await fetch(`/api/close/${symbol}/${slot}`, { method: 'POST' });
+    const result = await res.json();
+    if (!result.ok) {
+      alert(result.message || '平倉失敗');
+    }
+  } catch (e) {
+    alert('平倉請求失敗: ' + e);
+  } finally {
+    refresh();
+    refreshTrades();
+  }
+}
+
+async function manualOpen(symbol, side) {
+  if (!confirm(`確定要手動開${side === 'LONG' ? '多' : '空'} ${symbol} 嗎?`)) return;
+  try {
+    const res = await fetch(`/api/open/${symbol}/${side}`, { method: 'POST' });
+    const result = await res.json();
+    if (!result.ok) {
+      alert(result.message || '開倉失敗');
+    }
+  } catch (e) {
+    alert('開倉請求失敗: ' + e);
+  } finally {
+    refresh();
+    refreshTrades();
+  }
+}
+
+async function refresh() {
+  try {
+    const res = await fetch('/api/status');
+    const s = await res.json();
+    const envLabel = s.paper_trading ? '紙交易 Paper Trading' : (s.testnet ? '測試網 Testnet' : '正式環境 LIVE');
+    const modeLabel = s.paper_trading ? '模擬損益(不會真的下單)' : (s.dry_run ? 'DRY RUN' : '真實下單');
+    const rpnl = s.realized_pnl;
+    const rpnlClass = rpnl > 0 ? 'pnl-pos' : (rpnl < 0 ? 'pnl-neg' : '');
+
+    document.getElementById('summary').innerHTML = `
+      <div class="card"><div class="label">環境</div><div class="value">${envLabel}</div></div>
+      <div class="card"><div class="label">下單模式</div><div class="value"><span class="badge ${(s.paper_trading || s.dry_run) ? 'off' : 'on'}">${modeLabel}</span></div></div>
+      <div class="card"><div class="label">運行狀態</div><div class="value"><span class="badge ${s.running ? 'on' : 'off'}">${s.running ? '運行中' : '已停止'}</span></div></div>
+      <div class="card"><div class="label">帳戶餘額 (USDT)</div><div class="value">${s.balance ?? '-'}</div></div>
+      <div class="card"><div class="label">總已實現損益 (USDT)</div><div class="value ${rpnlClass}">${rpnl ?? '-'}</div></div>
+      <div class="card"><div class="label">累積手續費 (USDT)</div><div class="value">${s.total_fees ?? '-'}</div></div>
+      <div class="card"><div class="label">槓桿 / 保證金模式</div><div class="value">${s.leverage}x / ${s.margin_type}</div></div>
+      <div class="card"><div class="label">K 線週期 / 輪詢間隔</div><div class="value">${s.kline_interval} / ${s.poll_interval_sec}s</div></div>
+      <div class="card"><div class="label">追蹤幣種數</div><div class="value">${(s.symbol_list || []).length}</div></div>
+      <div class="card"><div class="label">啟動時間</div><div class="value" style="font-size:.9rem">${s.started_at ?? '-'}</div></div>
+    `;
+
+    const symbolsBox = document.getElementById('symbols');
+    symbolsBox.innerHTML = (s.symbol_list || []).map(sym => {
+      const d = (s.symbols && s.symbols[sym]) || {};
+      const market = d.market || {};
+      const errHtml = d.error ? `<div class="symbol-error">⚠️ ${d.error}</div>` : '';
+      const positions = d.positions || {};
+      const slotKeys = s.hedge_mode ? ['LONG', 'SHORT'] : ['BOTH'];
+
+      const slotBlocks = slotKeys.map(slot => {
+        const slotData = positions[slot] || {};
+        const pos = slotData.position || {};
+        const isOpen = pos.side && pos.side !== 'NONE';
+        const pnl = pos.unrealized_pnl;
+        const pnlClass = pnl > 0 ? 'pnl-pos' : (pnl < 0 ? 'pnl-neg' : '');
+        // 未實現損益的百分比是相對於這筆倉位「投入的本金(保證金)」算的報酬率(ROE),
+        // 不是價格漲跌幅本身 - 名目價值 / 槓桿 = 本金,槓桿愈高同樣價格變動的 % 會愈大。
+        const margin = (pos.quantity && pos.entry_price && s.leverage)
+          ? (pos.quantity * pos.entry_price) / s.leverage : 0;
+        const pnlPctText = (margin > 0 && pnl !== undefined && pnl !== null)
+          ? ` (${pnl >= 0 ? '+' : ''}${(pnl / margin * 100).toFixed(2)}%)` : '';
+        const pnlText = (pnl ?? '-') + (pnl != null ? pnlPctText : '');
+
+        // 單向模式("BOTH" 槽)可以選多或空;雙向模式每個槽只對應自己的方向。
+        const openSides = slot === 'LONG' ? ['LONG'] : slot === 'SHORT' ? ['SHORT'] : ['LONG', 'SHORT'];
+        const actionBtns = isOpen
+          ? `<button class="close-btn" onclick="manualClose('${sym}','${slot}')">手動平倉</button>`
+          : openSides.map(side => `<button class="open-btn open-btn-${side}" onclick="manualOpen('${sym}','${side}')">手動開${side === 'LONG' ? '多' : '空'}</button>`).join('');
+        const slotTitle = slot === 'LONG' ? '多單 (LONG)' : slot === 'SHORT' ? '空單 (SHORT)' : '持倉';
+
+        return `
+          <div class="slot-block">
+            <div class="slot-header">
+              <span class="slot-title">${slotTitle}</span>
+              <div class="slot-actions">${actionBtns}</div>
+            </div>
+            <div class="grid">
+              <div class="card"><div class="label">方向/數量</div><div class="value side-${pos.side || 'NONE'}">${pos.side || 'NONE'} ${pos.quantity ?? ''}</div></div>
+              <div class="card"><div class="label">進場價</div><div class="value">${pos.entry_price ?? '-'}</div></div>
+              <div class="card"><div class="label">未實現損益</div><div class="value ${pnlClass}">${pnlText}</div></div>
+              <div class="card"><div class="label">最後訊號</div><div class="value">${slotData.last_signal ?? '-'}</div></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="symbol-section">
+          <div class="symbol-header">
+            <h2>${sym}</h2>
+            <span style="font-size:.85rem;color:#6b7280">現價 ${market.price ?? '-'}</span>
+          </div>
+          ${slotBlocks}
+          ${errHtml}
+        </div>
+      `;
+    }).join('');
+
+    document.getElementById('updated').textContent = '最後更新: ' + (s.last_update ?? '-');
+  } catch (e) {
+    document.getElementById('updated').textContent = '無法連線至機器人狀態 API: ' + e;
+  }
+}
+
+async function refreshTrades() {
+  const wrap = document.getElementById('tradesWrap');
+  try {
+    const res = await fetch('/api/trades');
+    const trades = await res.json();
+    if (!trades.length) {
+      wrap.innerHTML = `<div class="empty-note">目前還沒有已平倉的交易紀錄。</div>`;
+      return;
+    }
+    const sorted = [...trades].sort((a, b) => (a.exit_time < b.exit_time ? 1 : -1));
+    const shown = sorted.slice(0, 200);
+    const rows = shown.map(t => {
+      const pnlClass = t.pnl > 0 ? 'pnl-pos' : (t.pnl < 0 ? 'pnl-neg' : '');
+      return `
+        <tr>
+          <td>${t.symbol}</td>
+          <td class="side-${t.side}">${t.side}</td>
+          <td>${(t.entry_time || '').replace('T', ' ').slice(0, 19)}</td>
+          <td>${(t.exit_time || '').replace('T', ' ').slice(0, 19)}</td>
+          <td>${t.entry_price}</td>
+          <td>${t.exit_price}</td>
+          <td>${t.quantity}</td>
+          <td class="${pnlClass}">${t.pnl.toFixed(4)}</td>
+          <td>${t.fee.toFixed(4)}</td>
+          <td>${t.reason}</td>
+        </tr>
+      `;
+    }).join('');
+    const note = trades.length > shown.length
+      ? `<div class="empty-note">只顯示最近 ${shown.length} 筆(共 ${trades.length} 筆),完整紀錄請下載 CSV。</div>` : '';
+    wrap.innerHTML = `
+      <table class="trades">
+        <thead><tr>
+          <th>幣種</th><th>方向</th><th>進場時間 (UTC)</th><th>出場時間 (UTC)</th>
+          <th>進場價</th><th>出場價</th><th>數量</th><th>損益 (USDT)</th><th>手續費 (USDT)</th><th>原因</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${note}
+    `;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-note">無法載入交易紀錄: ${e}</div>`;
+  }
+}
+
+refresh();
+refreshTrades();
+setInterval(refresh, 3000);
+setInterval(refreshTrades, 5000);
+</script>
+</body>
+</html>
+"""
+
+
+def create_app(bot: "BinanceFuturesBot") -> FastAPI:
+    app = FastAPI(title="新幣安機器人儀表板")
+
+    @app.get("/", response_class=HTMLResponse)
+    def dashboard():
+        return _DASHBOARD_HTML
+
+    @app.get("/api/status")
+    def api_status():
+        return bot.get_status_snapshot()
+
+    @app.get("/api/trades")
+    def api_trades():
+        return bot.get_trade_history()
+
+    @app.get("/api/trades.csv")
+    def api_trades_csv():
+        trades = bot.get_trade_history()
+        buf = io.StringIO()
+        fieldnames = [f.name for f in fields(TradeRecord)]
+        writer = csv.DictWriter(buf, fieldnames=fieldnames)
+        writer.writeheader()
+        for t in trades:
+            writer.writerow(t)
+        # Content-Disposition 的 header value 只能是 latin-1,中文檔名不能直接塞進 filename=,
+        # 要用 RFC 5987 的 filename*=UTF-8''<percent-encoded> 語法,並留一個 ASCII 檔名當後備。
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        ascii_filename = f"trade_history_{ts}.csv"
+        utf8_filename = quote(f"新幣安_交易紀錄_{ts}.csv")
+        return Response(
+            content=buf.getvalue(),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{ascii_filename}"; '
+                    f"filename*=UTF-8''{utf8_filename}"
+                )
+            },
+        )
+
+    @app.post("/api/close/{symbol}/{slot}")
+    def api_close(symbol: str, slot: str):
+        return bot.manual_close(symbol.upper(), slot.upper())
+
+    @app.post("/api/open/{symbol}/{side}")
+    def api_open(symbol: str, side: str):
+        return bot.manual_open(symbol.upper(), side.upper())
+
+    return app
+
+
+# ---------------------------------------------------------------------------
+# 進入點
+# ---------------------------------------------------------------------------
+
+def main():
+    config = Config.from_env()
+    # 預設使用 EMA9/21 交叉 + RSI14 確認策略;換成 ManualSignalStrategy() 可回到
+    # 只記錄市況、永遠 HOLD、不會下單的安全觀察模式。
+    strategy = EmaRsiCrossStrategy(adx_threshold=config.adx_threshold)
+    bot = BinanceFuturesBot(config, strategy)
+    bot.setup()
+
+    bot_thread = threading.Thread(target=bot.run, name="新幣安-bot-loop", daemon=True)
+    bot_thread.start()
+
+    app = create_app(bot)
+    logger.info(f"🌐 儀表板啟動,請開啟瀏覽器: http://localhost:{config.web_port}")
+
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=config.web_port, log_level="warning")
+    finally:
+        bot.stop()
+        bot_thread.join(timeout=5)
+
+
+if __name__ == "__main__":
+    main()

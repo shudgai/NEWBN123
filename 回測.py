@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-回測 - 針對「新幣安」目前套用的 EMA/RSI 交叉策略,用歷史 K 線資料回測過去表現。
+回測 - 針對「新幣安」目前套用的策略,用歷史 K 線資料回測過去表現。
 
-直接載入「新幣安」那個檔案,重用裡面的 EmaRsiCrossStrategy / Signal / MarketSnapshot /
+直接載入「新幣安」那個檔案,重用裡面的策略類別(EmaRsiCrossStrategy /
+BollingerRsiReversionStrategy / MaTurnStrategy)、Signal / MarketSnapshot /
 PositionInfo,確保回測用的判斷邏輯跟現在線上實際在跑的完全一樣,不是另外重寫一份、
-容易跟正式邏輯漏同步的版本。只有「怎麼撮合成交、怎麼算損益」這部分是回測腳本自己的。
+容易跟正式邏輯漏同步的版本。只有「怎麼撮合成交、怎麼算損益」這部分是回測腳本自己的,
+而且止損/移動停利的模擬邏輯也跟 bot 本體的 check_paper_stop_loss()/
+check_paper_trailing_stop() 保持一致。
 
 用法範例:
     python3 回測.py
     python3 回測.py --symbol BTCUSDT --interval 15m --days 180 --leverage 5 \\
-        --risk-pct 0.02 --max-margin 50 --stop-loss-pct 0.02 --take-profit-pct 0.03
+        --risk-pct 0.02 --max-margin 50 --stop-loss-pct 0.01 --trailing-stop-pct 0.0025
+    python3 回測.py --strategy ma_turn --ma-period 7
 
 已知限制(誠實列出,回測結果不等於未來績效):
     - 進出場都用「K棒收盤價」當成交價,沒有模擬滑價、沒有逐筆撮合
@@ -95,6 +99,7 @@ class _Position:
     quantity: float = 0.0
     entry_price: float = 0.0
     entry_time: int = 0
+    best_price: float = 0.0  # 移動停利用:多單記錄進場以來最高價,空單記錄最低價
 
 
 @dataclass
@@ -111,7 +116,7 @@ class Trade:
 
 
 def run_backtest(mod, klines: list, symbol: str, leverage: int, risk_pct: float,
-                  max_margin: float, stop_loss_pct: float, take_profit_pct: float,
+                  max_margin: float, stop_loss_pct: float, trailing_stop_pct: float,
                   fee_pct: float, starting_balance: float, strategy):
     balance = starting_balance
     pos = _Position()
@@ -160,22 +165,37 @@ def run_backtest(mod, klines: list, symbol: str, leverage: int, risk_pct: float,
         low_price = float(klines[i][3])
         candle_time = int(klines[i][0])
 
-        # 1. 若有倉位,先用這根K棒的高低點判斷有沒有觸及止損/止盈
-        if pos.side != "NONE" and (stop_loss_pct > 0 or take_profit_pct > 0):
+        # 1. 若有倉位,先用這根K棒的高低點判斷有沒有觸及止損,再判斷移動停利。
+        #    移動停利要先「啟動」(價格已經往有利方向跑過 TRAILING_STOP_PCT)才會生效,
+        #    否則一筆進場就被套的交易,會在還沒到停損之前就被移動停利當成停損提早出場 -
+        #    跟「新幣安」bot 裡 check_paper_trailing_stop() 用完全相同的邏輯,確保回測
+        #    結果跟正式環境的行為一致。
+        if pos.side != "NONE":
+            if pos.side == "LONG":
+                pos.best_price = max(pos.best_price, high_price)
+            else:
+                pos.best_price = min(pos.best_price, low_price)
+
             if pos.side == "LONG":
                 sl_price = pos.entry_price * (1 - stop_loss_pct)
-                tp_price = pos.entry_price * (1 + take_profit_pct)
                 if stop_loss_pct > 0 and low_price <= sl_price:
                     close(sl_price, candle_time, "STOP_LOSS")
-                elif take_profit_pct > 0 and high_price >= tp_price:
-                    close(tp_price, candle_time, "TAKE_PROFIT")
+                elif trailing_stop_pct > 0:
+                    activation_price = pos.entry_price * (1 + trailing_stop_pct)
+                    if pos.best_price >= activation_price:
+                        trail_stop_price = pos.best_price * (1 - trailing_stop_pct)
+                        if low_price <= trail_stop_price:
+                            close(trail_stop_price, candle_time, "TRAILING_STOP")
             else:  # SHORT
                 sl_price = pos.entry_price * (1 + stop_loss_pct)
-                tp_price = pos.entry_price * (1 - take_profit_pct)
                 if stop_loss_pct > 0 and high_price >= sl_price:
                     close(sl_price, candle_time, "STOP_LOSS")
-                elif take_profit_pct > 0 and low_price <= tp_price:
-                    close(tp_price, candle_time, "TAKE_PROFIT")
+                elif trailing_stop_pct > 0:
+                    activation_price = pos.entry_price * (1 - trailing_stop_pct)
+                    if pos.best_price <= activation_price:
+                        trail_stop_price = pos.best_price * (1 + trailing_stop_pct)
+                        if high_price >= trail_stop_price:
+                            close(trail_stop_price, candle_time, "TRAILING_STOP")
 
         # 2. 交給策略判斷(用重新整理過、is_open 反映最新狀態的 position)
         position_info = mod.PositionInfo(
@@ -195,6 +215,7 @@ def run_backtest(mod, klines: list, symbol: str, leverage: int, risk_pct: float,
                 balance -= fee
                 pos = _Position(
                     side=signal.value, quantity=qty, entry_price=close_price, entry_time=candle_time,
+                    best_price=close_price,
                 )
 
     # 回測結束時若還有倉位,用最後一根K棒收盤價強制平倉,才能算出完整的最終權益
@@ -205,14 +226,14 @@ def run_backtest(mod, klines: list, symbol: str, leverage: int, risk_pct: float,
 
 
 def print_report(trades: List[Trade], starting_balance: float, final_balance: float,
-                  equity_curve: List[float], symbol: str, interval: str, days: int):
+                  equity_curve: List[float], symbol: str, interval: str, days: int, strategy_name: str):
     print()
     print("=" * 60)
-    print(f"回測報告 | {symbol} | {interval} | 近 {days} 天")
+    print(f"回測報告 | {symbol} | {interval} | 近 {days} 天 | 策略: {strategy_name}")
     print("=" * 60)
 
     if not trades:
-        print("這段期間內策略完全沒有觸發任何一筆交易(沒有出現符合條件的均線交叉),")
+        print("這段期間內策略完全沒有觸發任何一筆交易(沒有出現符合進場條件的訊號),")
         print("無法計算績效統計。可以試著拉長 --days,或換一個 interval 看看。")
         return
 
@@ -264,25 +285,27 @@ def print_report(trades: List[Trade], starting_balance: float, final_balance: fl
               f"數量 {t.quantity:.6f} | 損益 {t.pnl:+.4f} USDT ({t.reason})")
 
     print("=" * 60)
-    print("提醒:以上是「新幣安」目前套用的 EMA9/21+RSI14 交叉策略在歷史資料上的表現,")
+    print(f"提醒:以上是「{strategy_name}」策略在歷史資料上的表現,")
     print("不是未來績效的保證,行情環境改變策略可能完全失效。")
     print("=" * 60)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="回測「新幣安」目前套用的 EMA/RSI 交叉策略")
+    parser = argparse.ArgumentParser(description="回測「新幣安」目前套用的策略")
     parser.add_argument("--symbol", default="BTCUSDT")
     parser.add_argument("--interval", default="15m")
     parser.add_argument("--days", type=int, default=180)
     parser.add_argument("--leverage", type=int, default=5)
     parser.add_argument("--risk-pct", type=float, default=0.02)
     parser.add_argument("--max-margin", type=float, default=50.0)
-    parser.add_argument("--stop-loss-pct", type=float, default=0.02)
-    parser.add_argument("--take-profit-pct", type=float, default=0.03)
+    parser.add_argument("--stop-loss-pct", type=float, default=0.01)
+    parser.add_argument("--trailing-stop-pct", type=float, default=0.0025,
+                         help="移動停利回落幅度,0 代表不設。需要先真的獲利超過這個幅度才會啟動追蹤")
     parser.add_argument("--fee-pct", type=float, default=0.0004, help="單邊手續費率,預設 0.04%%(幣安合約 Taker 費率)")
     parser.add_argument("--starting-balance", type=float, default=10000.0)
-    parser.add_argument("--strategy", choices=["ema_rsi", "bb_reversion"], default="ema_rsi",
-                         help="ema_rsi = EMA交叉+RSI+ADX趨勢濾網(追動能);bb_reversion = 布林通道+RSI均值回歸(逆勢)")
+    parser.add_argument("--strategy", choices=["ema_rsi", "bb_reversion", "ma_turn"], default="ma_turn",
+                         help="ema_rsi = EMA交叉+RSI+ADX趨勢濾網(追動能);bb_reversion = 布林通道+RSI均值回歸(逆勢);"
+                              "ma_turn = MA轉折(谷底轉向上買入、高點轉向下賣出)")
     # EmaRsiCrossStrategy 參數
     parser.add_argument("--ema-fast", type=int, default=9)
     parser.add_argument("--ema-slow", type=int, default=21)
@@ -297,6 +320,8 @@ def main():
     parser.add_argument("--bb-std", type=float, default=2.0)
     parser.add_argument("--rsi-oversold", type=float, default=30.0)
     parser.add_argument("--rsi-overbought", type=float, default=70.0)
+    # MaTurnStrategy 參數
+    parser.add_argument("--ma-period", type=int, default=7)
     args = parser.parse_args()
 
     mod = _load_xinbian()
@@ -313,6 +338,8 @@ def main():
             bb_period=args.bb_period, bb_std=args.bb_std, rsi_period=args.rsi_period,
             rsi_oversold=args.rsi_oversold, rsi_overbought=args.rsi_overbought,
         )
+    elif args.strategy == "ma_turn":
+        strategy = mod.MaTurnStrategy(ma_period=args.ma_period)
     else:
         strategy = mod.EmaRsiCrossStrategy(
             ema_fast=args.ema_fast, ema_slow=args.ema_slow, rsi_period=args.rsi_period,
@@ -322,12 +349,12 @@ def main():
 
     trades, final_balance, equity_curve = run_backtest(
         mod, klines, args.symbol, args.leverage, args.risk_pct, args.max_margin,
-        args.stop_loss_pct, args.take_profit_pct, args.fee_pct, args.starting_balance,
+        args.stop_loss_pct, args.trailing_stop_pct, args.fee_pct, args.starting_balance,
         strategy,
     )
 
     print_report(trades, args.starting_balance, final_balance, equity_curve,
-                 args.symbol, args.interval, args.days)
+                 args.symbol, args.interval, args.days, type(strategy).__name__)
 
 
 if __name__ == "__main__":

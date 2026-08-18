@@ -71,6 +71,8 @@ ManualSignalStrategy 只會記錄市況、永遠回傳 HOLD,可安全執行不�
                             每個槽該怎麼做。真實/測試網模式下,啟用時會呼叫
                             futures_change_position_mode 切換帳戶為雙向持倉,下單時也會
                             帶 positionSide 參數
+    MA_PERIOD                 MaTurnStrategy(目前預設策略)的均線期數,預設 7,對應
+                            「MA7 谷底轉向上買入、高點轉向下賣出」這個進場條件
     POLL_INTERVAL_SEC         主迴圈輪詢間隔秒數,預設 15
     WEB_PORT                  網頁儀表板監聽的 port,預設 8005
                             (另一個舊專案 new bn 佔用 8006,這裡刻意用不同 port 避免衝突)
@@ -169,6 +171,7 @@ class Config:
     fee_pct: float
     adx_threshold: float
     hedge_mode: bool
+    ma_period: int
     poll_interval_sec: int
     web_port: int
 
@@ -204,6 +207,7 @@ class Config:
             fee_pct=float(os.getenv("FEE_PCT", "0.0004")),
             adx_threshold=float(os.getenv("ADX_THRESHOLD", "20.0")),
             hedge_mode=_env_bool("HEDGE_MODE", False),
+            ma_period=int(os.getenv("MA_PERIOD", "7")),
             poll_interval_sec=int(os.getenv("POLL_INTERVAL_SEC", "15")),
             web_port=int(os.getenv("WEB_PORT", "8005")),
         )
@@ -512,6 +516,80 @@ class BollingerRsiReversionStrategy(Strategy):
                 return Signal.CLOSE
             if position.side == "SHORT" and last_close <= last_sma:
                 logger.info("📉 空單價格已回到中軌,觸發平倉訊號(均值回歸完成)")
+                return Signal.CLOSE
+
+        return Signal.HOLD
+
+
+def _sma(values: list, period: int) -> list:
+    """簡單移動平均線 (SMA),回傳長度與 values 相同的序列;資料不足的前段用目前為止的平均頂替。"""
+    n = len(values)
+    result = [0.0] * n
+    for i in range(n):
+        if i < period - 1:
+            result[i] = sum(values[:i + 1]) / (i + 1)
+        else:
+            result[i] = sum(values[i - period + 1:i + 1]) / period
+    return result
+
+
+class MaTurnStrategy(Strategy):
+    """
+    MA(預設 7 期)轉折策略:只看均線本身的走向有沒有轉彎,不看價格本身、不搭配其他指標。
+      - MA 從下降轉為上升(谷底反轉,V 型底)-> 做多
+      - MA 從上升轉為下降(高點反轉,倒 V 型頂)-> 做空
+      - 持多單時遇到高點反轉(倒V頂)-> 平倉;持空單時遇到谷底反轉(V型底)-> 平倉
+
+    判斷一律使用「已收盤」的K棒:比較最後三根已收盤K棒的 MA 值(-2/-3/-4,-1 是
+    尚未收盤、仍在變動的最新K棒,不採用),看這三個點的斜率有沒有由正轉負或由負轉正,
+    避免用還沒收盤的K棒導致訊號在收盤前反覆出現又消失。
+    """
+
+    def __init__(self, ma_period: int = 7):
+        self.ma_period = ma_period
+
+    def on_tick(self, market: MarketSnapshot, position: PositionInfo) -> Signal:
+        closes = [float(k[4]) for k in market.klines]
+
+        min_len = self.ma_period + 4
+        if len(closes) < min_len:
+            logger.info(f"[策略] K 線資料不足({len(closes)}/{min_len}),暫時觀望")
+            return Signal.HOLD
+
+        ma = _sma(closes, self.ma_period)
+
+        # -1 是尚未收盤的最新K棒,-2/-3/-4 是最後三根已收盤K棒(由舊到新: -4, -3, -2)
+        two_ago, one_ago, last = ma[-4], ma[-3], ma[-2]
+        # "之前的走勢"用 <=/>= 讓「持平」算進原本的趨勢裡,不要求嚴格遞增/遞減 -
+        # 否則遇到轉折點剛好卡在一個持平的點(例如 127.71 -> 127.71 -> 127.43),
+        # 嚴格不等式會把這個轉折判斷漏掉,永遠等不到「嚴格上升接嚴格下降」這麼乾淨的組合。
+        # "現在的走勢"則要求嚴格變動,確保真的有動作才算轉向,不是原地踏步。
+        was_falling = one_ago <= two_ago
+        was_rising = one_ago >= two_ago
+        now_rising = last > one_ago
+        now_falling = last < one_ago
+
+        trough_turn_up = was_falling and now_rising
+        peak_turn_down = was_rising and now_falling
+
+        logger.info(
+            f"[策略] {market.symbol} 現價 {market.price} | MA{self.ma_period}: "
+            f"{two_ago:.2f} -> {one_ago:.2f} -> {last:.2f} | 持倉 {position.side} 數量 {position.quantity}"
+        )
+
+        if not position.is_open:
+            if trough_turn_up:
+                logger.info(f"🟢 MA{self.ma_period} 谷底轉向上,觸發做多訊號")
+                return Signal.LONG
+            if peak_turn_down:
+                logger.info(f"🔴 MA{self.ma_period} 高點轉向下,觸發做空訊號")
+                return Signal.SHORT
+        else:
+            if position.side == "LONG" and peak_turn_down:
+                logger.info(f"📉 持多單遇 MA{self.ma_period} 高點轉向下,觸發平倉訊號")
+                return Signal.CLOSE
+            if position.side == "SHORT" and trough_turn_up:
+                logger.info(f"📈 持空單遇 MA{self.ma_period} 谷底轉向上,觸發平倉訊號")
                 return Signal.CLOSE
 
         return Signal.HOLD
@@ -1545,9 +1623,10 @@ def create_app(bot: "BinanceFuturesBot") -> FastAPI:
 
 def main():
     config = Config.from_env()
-    # 預設使用 EMA9/21 交叉 + RSI14 確認策略;換成 ManualSignalStrategy() 可回到
-    # 只記錄市況、永遠 HOLD、不會下單的安全觀察模式。
-    strategy = EmaRsiCrossStrategy(adx_threshold=config.adx_threshold)
+    # 目前預設使用 MA7 轉折策略(谷底轉向上買入、高點轉向下賣出);
+    # 換成 ManualSignalStrategy() 可回到只記錄市況、永遠 HOLD、不會下單的安全觀察模式,
+    # 換成 EmaRsiCrossStrategy(adx_threshold=config.adx_threshold) 可切回均線交叉策略。
+    strategy = MaTurnStrategy(ma_period=config.ma_period)
     bot = BinanceFuturesBot(config, strategy)
     bot.setup()
 

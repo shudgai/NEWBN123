@@ -903,10 +903,20 @@ class BinanceFuturesBot:
             # 幣安的 callbackRate 是百分比數字(1 代表 1%),範圍 0.1~5,跟我們內部用小數
             # 表示比例(0.0025 代表 0.25%)不同,下單前要換算。
             callback_rate = round(self.config.trailing_stop_pct * 100, 1)
-            logger.info(f"🎯 [{symbol}][{slot}] 掛設移動停利: callbackRate={callback_rate}%(以標記價格啟動,防止插針誤觸)")
+            # activationPrice:價格要先往有利方向跑到這裡,移動停利才會真的開始追蹤,
+            # 不然一進場價格稍微逆向一點點就會被回調幅度打到,等於變成一個比 STOP_LOSS_PCT
+            # 更緊的停損,搶在真正的停損之前出場——那就不是「停利」該做的事了。跟紙交易的
+            # check_paper_trailing_stop() 用同一個門檻,確保兩邊行為一致。
+            activation_price = market.price * (1 + self.config.trailing_stop_pct) if side == Signal.LONG \
+                else market.price * (1 - self.config.trailing_stop_pct)
+            activation_price = self._round_price(symbol, activation_price)
+            logger.info(
+                f"🎯 [{symbol}][{slot}] 掛設移動停利: callbackRate={callback_rate}% | "
+                f"啟動價 {activation_price}(以標記價格啟動,防止插針誤觸)"
+            )
             tp_kwargs = dict(
                 symbol=symbol, side=tp_side, type="TRAILING_STOP_MARKET",
-                callbackRate=callback_rate, workingType="MARK_PRICE",
+                callbackRate=callback_rate, activationPrice=activation_price, workingType="MARK_PRICE",
             )
             if self.config.hedge_mode:
                 tp_kwargs["positionSide"] = slot
@@ -939,17 +949,29 @@ class BinanceFuturesBot:
         更新這個倉位「進場以來最有利的價格」,並檢查是否從那個高點/低點回落超過
         TRAILING_STOP_PCT,回傳 "TRAILING_STOP" 或 None。多單只看最高價之後的回落,
         空單只看最低價之後的反彈,兩者都是「利潤縮水超過設定幅度就先落袋」的邏輯。
+
+        必須先「啟動」才會真的去檢查觸發:價格要先往有利方向跑過 TRAILING_STOP_PCT
+        (也就是先真的有獲利),移動停利才會開始追蹤。啟動之前只讓 STOP_LOSS_PCT 管,
+        不然一筆進場就直接被套的交易,還沒到 1% 停損,反而先被這個「停利」用比停損
+        更小的 0.25% 提早出場認賠 —— 那就違背了「停利」這個機制原本該做的事。
         """
         if not position.is_open or self.config.trailing_stop_pct <= 0:
             return None
         best_price = self.paper_account.update_trailing_peak(symbol, slot, price_high, price_low)
         if best_price <= 0:
             return None
+        entry = position.entry_price
         if position.side == "LONG":
+            activation_price = entry * (1 + self.config.trailing_stop_pct)
+            if best_price < activation_price:
+                return None  # 還沒真的獲利到位,先不啟動
             trail_stop_price = best_price * (1 - self.config.trailing_stop_pct)
             if price_low <= trail_stop_price:
                 return "TRAILING_STOP"
         else:  # SHORT
+            activation_price = entry * (1 - self.config.trailing_stop_pct)
+            if best_price > activation_price:
+                return None
             trail_stop_price = best_price * (1 + self.config.trailing_stop_pct)
             if price_high >= trail_stop_price:
                 return "TRAILING_STOP"

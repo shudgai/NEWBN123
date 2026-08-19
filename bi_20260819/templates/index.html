@@ -63,7 +63,7 @@
         <div class="metric"><div class="label">MA25</div><div id="ma25" class="value">--</div></div>
         <div class="metric"><div class="label">MA99</div><div id="ma99" class="value">--</div></div>
         <div class="metric"><div class="label">ATR14</div><div id="atr14" class="value">--</div></div>
-        <div class="metric"><div class="label">Spike Guard</div><div id="spike-guard" class="value">NORMAL</div></div>
+        <div class="metric"><div class="label">Entry Guard</div><div id="spike-guard" class="value">NORMAL</div></div>
         <div class="metric"><div class="label">&#x6a5f;&#x5668;&#x4eba;&#x72c0;&#x614b;</div><div id="state" class="value">--</div></div>
     </section>
 
@@ -125,7 +125,7 @@ function render(s){
     document.getElementById("ma25").textContent=indicators.ma25==null?"--":fmt(indicators.ma25);
     document.getElementById("ma99").textContent=indicators.ma99==null?"--":fmt(indicators.ma99);
     document.getElementById("atr14").textContent=indicators.atr14==null?"--":fmt(indicators.atr14);
-    const guard=document.getElementById("spike-guard");guard.textContent=s.spike_protection?"BLOCKED":"NORMAL";guard.className="value "+(s.spike_protection?"negative":"positive");
+    const guard=document.getElementById("spike-guard");guard.textContent=s.spike_protection?"SPIKE":s.low_volatility_protection?"LOW VOL":"NORMAL";guard.className="value "+(s.spike_protection||s.low_volatility_protection?"negative":"positive");
     document.getElementById("state").textContent=s.running?"運行中":"已停止";
     document.getElementById("state").className="value "+(s.running?"positive":"");
     document.getElementById("start").disabled=Boolean(s.running);document.getElementById("stop").disabled=!s.running;

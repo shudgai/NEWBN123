@@ -12,6 +12,8 @@ from src.config import (
     MAX_CANDLE_RANGE_ATR,
     MAX_CLOSE_MOVE_ATR,
     MAX_POSITION_VALUE_USDT,
+    MIN_ENTRY_ATR_PCT,
+    MIN_MA7_TURN_ATR_RATIO,
     PAPER_FEE_RATE,
     SIGNAL_TIMEFRAME,
     STATUS_FILE,
@@ -60,11 +62,14 @@ class TradingBot:
                 "ma99": None,
                 "close": None,
                 "atr14": None,
+                "atr_pct": None,
+                "ma7_turn_atr_ratio": None,
                 "range_atr_ratio": None,
                 "close_move_atr_ratio": None,
             },
             "signal": "waiting",
             "spike_protection": False,
+            "low_volatility_protection": False,
             "last_processed_candle": self.last_processed_candle,
             "mode": "paper" if DRY_RUN else "live",
             "running": False,
@@ -161,6 +166,17 @@ class TradingBot:
         ma25_falling = float(latest["ma25"]) < float(previous["ma25"])
         ma99_falling = float(latest["ma99"]) < float(previous["ma99"])
         atr14 = float(latest["atr14"])
+        latest_close = float(latest["close"])
+        atr_pct = atr14 / latest_close * 100 if latest_close > 0 else 0.0
+        ma7_turn_atr_ratio = (
+            abs(float(latest["ma7"]) - float(previous["ma7"])) / atr14
+            if atr14 > 0
+            else 0.0
+        )
+        low_volatility = (
+            atr_pct < MIN_ENTRY_ATR_PCT
+            and ma7_turn_atr_ratio < MIN_MA7_TURN_ATR_RATIO
+        )
         candle_range = float(latest["high"]) - float(latest["low"])
         close_move = abs(float(latest["close"]) - float(previous["close"]))
         range_atr_ratio = candle_range / atr14 if atr14 > 0 else float("inf")
@@ -170,18 +186,20 @@ class TradingBot:
             or close_move_atr_ratio > MAX_CLOSE_MOVE_ATR
         )
         signal = "hold"
+        long_timing = ma7_turns_up or ma7_rising_two
+        short_timing = ma7_turns_down or ma7_falling_two
         if (
             not spike_detected
-            and ma7_turns_up
-            and ma25_rising
-            and ma99_rising
+            and not low_volatility
+            and long_timing
+            and latest_close > float(latest["ma25"])
         ):
             signal = "long"
         elif (
             not spike_detected
-            and ma7_turns_down
-            and ma25_falling
-            and ma99_falling
+            and not low_volatility
+            and short_timing
+            and latest_close < float(latest["ma25"])
         ):
             signal = "short"
 
@@ -194,6 +212,7 @@ class TradingBot:
         return {
             "signal": signal,
             "spike_detected": spike_detected,
+            "low_volatility": low_volatility,
             "ma7_turns_up": ma7_turns_up,
             "ma7_turns_down": ma7_turns_down,
             "ma7_rising_two": ma7_rising_two,
@@ -209,6 +228,8 @@ class TradingBot:
                 "ma99": float(latest["ma99"]),
                 "close": float(latest["close"]),
                 "atr14": atr14,
+                "atr_pct": atr_pct,
+                "ma7_turn_atr_ratio": ma7_turn_atr_ratio,
                 "range_atr_ratio": range_atr_ratio,
                 "close_move_atr_ratio": close_move_atr_ratio,
             },
@@ -228,6 +249,9 @@ class TradingBot:
             self.current_status["indicators"] = result["indicators"]
             self.current_status["signal"] = result["signal"]
             self.current_status["spike_protection"] = result["spike_detected"]
+            self.current_status["low_volatility_protection"] = result[
+                "low_volatility"
+            ]
             self.current_status["current_price"] = self.executor.get_mark_price(
                 TRADING_SYMBOL
             )
@@ -245,6 +269,13 @@ class TradingBot:
                     "偵測到異常 K 線，暫停新開倉："
                     f"range/ATR={result['indicators']['range_atr_ratio']:.2f}, "
                     f"close-move/ATR={result['indicators']['close_move_atr_ratio']:.2f}"
+                )
+            elif result["low_volatility"]:
+                print(
+                    "波動或 MA7 轉折幅度過小，暫停新開倉："
+                    f"ATR={result['indicators']['atr_pct']:.4f}%, "
+                    "MA7-turn/ATR="
+                    f"{result['indicators']['ma7_turn_atr_ratio']:.3f}"
                 )
 
             close_long = long_quantity > 0 and result["ma7_falling_two"]

@@ -50,6 +50,7 @@ def empty_status():
             "short": empty_position("short"),
         },
         "rsi": None,
+        "low_volatility_protection": False,
         "mode": "paper",
         "running": False,
         "error": None,

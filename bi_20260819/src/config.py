@@ -19,7 +19,11 @@ PAPER_FEE_RATE = float(os.getenv("PAPER_FEE_RATE", "0.0005"))
 TARGET_PERCENTAGE = float(os.getenv("TARGET_PERCENTAGE", "0.50"))
 MAX_POSITION_VALUE_USDT = float(os.getenv("MAX_POSITION_VALUE_USDT", "75"))
 MAX_CANDLE_RANGE_ATR = float(os.getenv("MAX_CANDLE_RANGE_ATR", "3.0"))
-MAX_CLOSE_MOVE_ATR = float(os.getenv("MAX_CLOSE_MOVE_ATR", "2.0"))
+MAX_CLOSE_MOVE_ATR = float(os.getenv("MAX_CLOSE_MOVE_ATR", "3.0"))
+MIN_ENTRY_ATR_PCT = float(os.getenv("MIN_ENTRY_ATR_PCT", "0.03"))
+MIN_MA7_TURN_ATR_RATIO = float(
+    os.getenv("MIN_MA7_TURN_ATR_RATIO", "0.05")
+)
 MAX_ENTRY_PRICE_DEVIATION_PCT = float(
     os.getenv("MAX_ENTRY_PRICE_DEVIATION_PCT", "0.5")
 )
@@ -35,6 +39,8 @@ if MAX_POSITION_VALUE_USDT <= 0:
     raise RuntimeError("MAX_POSITION_VALUE_USDT must be greater than 0.")
 if MAX_CANDLE_RANGE_ATR <= 0 or MAX_CLOSE_MOVE_ATR <= 0:
     raise RuntimeError("ATR spike thresholds must be greater than 0.")
+if MIN_ENTRY_ATR_PCT <= 0 or MIN_MA7_TURN_ATR_RATIO <= 0:
+    raise RuntimeError("Minimum entry volatility thresholds must be positive.")
 if MAX_ENTRY_PRICE_DEVIATION_PCT <= 0:
     raise RuntimeError("MAX_ENTRY_PRICE_DEVIATION_PCT must be greater than 0.")
 if not 0 <= PAPER_FEE_RATE < 1:

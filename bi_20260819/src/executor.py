@@ -345,13 +345,55 @@ class Executor:
         position["peakUnleveragedPnlPct"] = peak_pct
         position["trailingStopPct"] = stop_pct
         self._save_paper_state()
+        close_result = self.estimated_close_result(
+            symbol, position_side, position
+        )
         return {
-            "should_close": current_pct <= stop_pct,
+            "should_close": (
+                current_pct <= stop_pct
+                and close_result["net_pnl"] > 0
+            ),
             "armed": True,
             "current_pct": current_pct,
             "peak_pct": peak_pct,
             "stop_pct": stop_pct,
+            "estimated_net_pnl": close_result["net_pnl"],
         }
+
+    def estimated_close_result(self, symbol, position_side, position=None):
+        position = position or self.get_positions(symbol).get(position_side)
+        if not position:
+            return {"gross_pnl": 0.0, "total_fees": 0.0, "net_pnl": 0.0}
+
+        quantity = float(
+            position.get("contracts") or position.get("amount") or 0
+        )
+        contract_size = float(position.get("contractSize") or 1)
+        entry_price = float(position.get("entryPrice") or 0)
+        mark_price = float(position.get("markPrice") or 0)
+        direction = 1 if position_side == "long" else -1
+        gross_pnl = (
+            (mark_price - entry_price)
+            * quantity
+            * contract_size
+            * direction
+        )
+        entry_fee = float(position.get("entryFee") or 0)
+        exit_fee = quantity * contract_size * mark_price * self.fee_rate
+        total_fees = entry_fee + exit_fee
+        return {
+            "gross_pnl": gross_pnl,
+            "total_fees": total_fees,
+            "net_pnl": gross_pnl - total_fees,
+        }
+
+    def has_net_profit_after_fees(self, symbol, position_side):
+        position = self.get_positions(symbol).get(position_side)
+        if not position:
+            return False
+        return self.estimated_close_result(
+            symbol, position_side, position
+        )["net_pnl"] > 0
 
     def position_summaries(self, symbol):
         positions = self.get_positions(symbol)

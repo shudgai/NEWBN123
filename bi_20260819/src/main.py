@@ -311,8 +311,34 @@ class TradingBot:
                     f"{result['indicators']['ma7_turn_atr_ratio']:.3f}"
                 )
 
-            close_long = long_quantity > 0 and result["ma7_falling_two"]
-            close_short = short_quantity > 0 and result["ma7_rising_two"]
+            long_ma7_exit = (
+                long_quantity > 0 and result["ma7_falling_two"]
+            )
+            short_ma7_exit = (
+                short_quantity > 0 and result["ma7_rising_two"]
+            )
+            close_long = (
+                long_ma7_exit
+                and self.executor.has_net_profit_after_fees(
+                    TRADING_SYMBOL, "long"
+                )
+            )
+            close_short = (
+                short_ma7_exit
+                and self.executor.has_net_profit_after_fees(
+                    TRADING_SYMBOL, "short"
+                )
+            )
+            if long_ma7_exit and not close_long:
+                print(
+                    "MA7 多單平倉訊號已出現，但扣除雙邊手續費後"
+                    "尚未獲利，繼續持倉。"
+                )
+            if short_ma7_exit and not close_short:
+                print(
+                    "MA7 空單平倉訊號已出現，但扣除雙邊手續費後"
+                    "尚未獲利，繼續持倉。"
+                )
             if close_long:
                 print("MA7 已連續兩根向下，平多單。")
                 self.executor.close_position(

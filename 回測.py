@@ -303,9 +303,10 @@ def main():
                          help="移動停利回落幅度,0 代表不設。需要先真的獲利超過這個幅度才會啟動追蹤")
     parser.add_argument("--fee-pct", type=float, default=0.0004, help="單邊手續費率,預設 0.04%%(幣安合約 Taker 費率)")
     parser.add_argument("--starting-balance", type=float, default=10000.0)
-    parser.add_argument("--strategy", choices=["ema_rsi", "bb_reversion", "ma_turn"], default="ma_turn",
+    parser.add_argument("--strategy", choices=["ema_rsi", "bb_reversion", "ma_turn", "ma_turn_volume"], default="ma_turn",
                          help="ema_rsi = EMA交叉+RSI+ADX趨勢濾網(追動能);bb_reversion = 布林通道+RSI均值回歸(逆勢);"
-                              "ma_turn = MA轉折(谷底轉向上買入、高點轉向下賣出)")
+                              "ma_turn = MA轉折(谷底轉向上買入、高點轉向下賣出);"
+                              "ma_turn_volume = MA轉折 + 量縮濾網(進場前那段走勢成交量要明顯萎縮)")
     # EmaRsiCrossStrategy 參數
     parser.add_argument("--ema-fast", type=int, default=9)
     parser.add_argument("--ema-slow", type=int, default=21)
@@ -326,6 +327,10 @@ def main():
                          help="進場轉折需要連續幾根同方向K棒確認,預設 1(不額外確認,盡量減少進場延遲)")
     parser.add_argument("--ma-exit-confirm-bars", type=int, default=2,
                          help="出場/止盈轉折需要連續幾根同方向K棒確認,預設 2(比進場嚴格,避免雜訊提早出場)")
+    # MaTurnVolumeStrategy 額外參數
+    parser.add_argument("--volume-lookback-bars", type=int, default=16)
+    parser.add_argument("--volume-max-ratio", type=float, default=0.7,
+                         help="後半段平均量 <= 前半段平均量 * 這個比例才算量縮,預設 0.7")
     args = parser.parse_args()
 
     mod = _load_xinbian()
@@ -347,6 +352,14 @@ def main():
             ma_period=args.ma_period,
             entry_confirm_bars=args.ma_entry_confirm_bars,
             exit_confirm_bars=args.ma_exit_confirm_bars,
+        )
+    elif args.strategy == "ma_turn_volume":
+        strategy = mod.MaTurnVolumeStrategy(
+            ma_period=args.ma_period,
+            entry_confirm_bars=args.ma_entry_confirm_bars,
+            exit_confirm_bars=args.ma_exit_confirm_bars,
+            volume_lookback_bars=args.volume_lookback_bars,
+            volume_max_ratio=args.volume_max_ratio,
         )
     else:
         strategy = mod.EmaRsiCrossStrategy(

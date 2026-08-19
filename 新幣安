@@ -75,12 +75,21 @@ ManualSignalStrategy 只會記錄市況、永遠回傳 HOLD,可安全執行不�
     MA_PERIOD                 MaTurnStrategy(目前預設策略)的均線期數,預設 7,對應
                             「MA7 谷底轉向上買入、高點轉向下賣出」這個進場條件
     MA_ENTRY_CONFIRM_BARS     MaTurnStrategy 判斷「進場」轉彎需要連續幾根同方向的K棒才算數,
-                            預設 1(不用額外確認,盡量減少進場延遲)。數值愈高愈不容易被
-                            盤整雜訊誤判進場,但會等更多根K棒才進場,容易錯過行情前段、
-                            買在相對高點/空在相對低點
-    MA_EXIT_CONFIRM_BARS      MaTurnStrategy 判斷「出場/止盈」轉彎需要連續幾根同方向的K棒
-                            才算數,預設 2。故意設得比進場嚴格 - 提早出場會把還沒走完的
-                            趨勢利潤讓掉,寧可等確認清楚一點再出場
+                            預設 2(跟出場一樣嚴格)。數值愈高愈不容易被盤整雜訊誤判進場,
+                            但會等更多根K棒才進場,容易錯過行情前段、買在相對高點/空在
+                            相對低點。曾經試過設成 1(不用額外確認,盡量減少進場延遲),
+                            但實測進場常常抓到雜訊、方向常常一下子就反著走,改回 2 換取
+                            進場品質
+    MA_EXIT_CONFIRM_BARS      MaTurnStrategy 判斷「出場」轉彎需要連續幾根同方向的K棒才算數,
+                            預設 2。提早出場會把還沒走完的趨勢利潤讓掉,寧可等確認清楚
+                            一點再出場(現在出場主要交給下面的爆量移動停利,這個轉折出場
+                            當作備援)
+    VOLUME_SPIKE_LOOKBACK     移動停利(爆量出場)拿來算「平均量」的回看根數,預設 20。
+    VOLUME_SPIKE_RATIO        移動停利的爆量出場門檻,0 表示關閉,預設 2.0。持倉期間持續
+                            檢查最後一根已收盤K棒的量能:多單遇到爆量收黑(賣壓,量能 >=
+                            最近 VOLUME_SPIKE_LOOKBACK 根平均量 * 這個倍數)就出場;空單
+                            遇到爆量收紅(買氣)就出場。只要 MA7 順著原方向走、沒出現爆量
+                            反向的K棒,就會一直抱著不出場,不會因為價格小幅拉回就提早停利。
     STATE_FILE                紙交易狀態存檔路徑,預設 新幣安_state.json(跟這個檔案同目錄)。
                             每次開倉/平倉、以及每輪輪詢後都會存一次檔;啟動時如果這個檔案
                             存在就會直接讀回餘額、持倉、交易紀錄接著跑,不會每次重啟就歸零。
@@ -190,6 +199,8 @@ class Config:
     ma_period: int
     ma_entry_confirm_bars: int
     ma_exit_confirm_bars: int
+    volume_spike_lookback: int
+    volume_spike_ratio: float
     state_file: str
     reset_state: bool
     poll_interval_sec: int
@@ -228,8 +239,10 @@ class Config:
             adx_threshold=float(os.getenv("ADX_THRESHOLD", "20.0")),
             hedge_mode=_env_bool("HEDGE_MODE", False),
             ma_period=int(os.getenv("MA_PERIOD", "7")),
-            ma_entry_confirm_bars=int(os.getenv("MA_ENTRY_CONFIRM_BARS", "1")),
+            ma_entry_confirm_bars=int(os.getenv("MA_ENTRY_CONFIRM_BARS", "2")),
             ma_exit_confirm_bars=int(os.getenv("MA_EXIT_CONFIRM_BARS", "2")),
+            volume_spike_lookback=int(os.getenv("VOLUME_SPIKE_LOOKBACK", "20")),
+            volume_spike_ratio=float(os.getenv("VOLUME_SPIKE_RATIO", "2.0")),
             state_file=os.getenv("STATE_FILE", "新幣安_state.json"),
             reset_state=_env_bool("RESET_STATE", False),
             poll_interval_sec=int(os.getenv("POLL_INTERVAL_SEC", "15")),
@@ -636,6 +649,117 @@ class MaTurnStrategy(Strategy):
                 return Signal.CLOSE
             if position.side == "SHORT" and exit_trough_up:
                 logger.info(f"📈 持空單遇 MA{self.ma_period} 谷底轉向上(已連續{self.exit_confirm_bars}根確認),觸發平倉訊號")
+                return Signal.CLOSE
+
+        return Signal.HOLD
+
+
+def _volume_shrinking(volumes: list, lookback_bars: int, max_ratio: float) -> bool:
+    """
+    檢查最近 lookback_bars 根K棒的成交量,是否「後半段」比「前半段」明顯萎縮。
+    後半段平均量 <= 前半段平均量 * max_ratio 才算量縮(例如 max_ratio=0.7 代表
+    後半段量能只剩前半段的 7 成以下)。資料不夠、或前半段量是 0,保守回傳 False。
+    """
+    if len(volumes) < lookback_bars or lookback_bars < 2:
+        return False
+    window = volumes[-lookback_bars:]
+    mid = lookback_bars // 2
+    first_half_avg = sum(window[:mid]) / mid
+    second_half_avg = sum(window[mid:]) / (lookback_bars - mid)
+    if first_half_avg <= 0:
+        return False
+    return second_half_avg <= first_half_avg * max_ratio
+
+
+def _detect_volume_spike(klines: list, lookback_bars: int, spike_ratio: float) -> Optional[str]:
+    """
+    檢查「最後一根已收盤」K棒是不是一根爆量的下跌或上漲K棒:成交量 >= 最近
+    lookback_bars 根(不含這一根)的平均量 * spike_ratio,才算爆量;再看這根是收黑
+    (收盤 < 開盤,爆量賣出)還是收紅(收盤 > 開盤,爆量買進)。
+    回傳 "SELL" / "BUY" / None(沒有爆量,或資料不夠)。
+    klines[-1] 是尚未收盤的最新K棒,不採用;klines[-2] 才是最後一根已收盤K棒。
+    """
+    closed = klines[:-1]
+    if len(closed) < lookback_bars + 1:
+        return None
+    last = closed[-1]
+    recent = closed[-(lookback_bars + 1):-1]
+    avg_volume = sum(float(k[5]) for k in recent) / len(recent)
+    if avg_volume <= 0:
+        return None
+    last_volume = float(last[5])
+    if last_volume < avg_volume * spike_ratio:
+        return None
+    last_open = float(last[1])
+    last_close = float(last[4])
+    if last_close < last_open:
+        return "SELL"
+    if last_close > last_open:
+        return "BUY"
+    return None
+
+
+class MaTurnVolumeStrategy(Strategy):
+    """
+    MA7 轉折 + 量縮濾網:在 MaTurnStrategy 的轉折訊號基礎上,額外要求「進場前那段
+    走勢的成交量明顯萎縮」才觸發進場 - 價格延伸但量能跟不上,代表推動這段走勢的
+    動能在耗竭,傳統上視為比較可靠的探底/探頂訊號,而不是隨便一個轉折都進場。
+
+      - 做多:MA7 谷底轉向上 + 量縮(賣壓減弱)
+      - 做空:MA7 高點轉向下 + 量縮(買氣減弱)
+
+    出場邏輯跟 MaTurnStrategy 完全一樣(轉折反向 + exit_confirm_bars 確認),不額外
+    加量縮條件 - 出場是為了保護已有的部位,不該因為「量沒縮」就硬撐著不出場。
+
+    這個濾網只影響「要不要進場」,不會讓同一筆交易的成交價更好 - 它濾掉的是訊號
+    品質較差的那些轉折,不是幫你在同一個轉折點買在更低價。
+    """
+
+    def __init__(self, ma_period: int = 7, entry_confirm_bars: int = 1, exit_confirm_bars: int = 2,
+                 volume_lookback_bars: int = 16, volume_max_ratio: float = 0.7):
+        self.ma_period = ma_period
+        self.entry_confirm_bars = max(1, entry_confirm_bars)
+        self.exit_confirm_bars = max(1, exit_confirm_bars)
+        self.volume_lookback_bars = volume_lookback_bars
+        self.volume_max_ratio = volume_max_ratio
+
+    def on_tick(self, market: MarketSnapshot, position: PositionInfo) -> Signal:
+        closes = [float(k[4]) for k in market.klines]
+        volumes = [float(k[5]) for k in market.klines]
+
+        max_confirm = max(self.entry_confirm_bars, self.exit_confirm_bars)
+        min_len = max(self.ma_period + max_confirm + 4, self.volume_lookback_bars + 2)
+        if len(closes) < min_len:
+            logger.info(f"[策略] K 線資料不足({len(closes)}/{min_len}),暫時觀望")
+            return Signal.HOLD
+
+        ma = _sma(closes, self.ma_period)
+        entry_trough_up, entry_peak_down = MaTurnStrategy._turn_signals(ma, self.entry_confirm_bars)
+        exit_trough_up, exit_peak_down = MaTurnStrategy._turn_signals(ma, self.exit_confirm_bars)
+
+        # 量縮判斷用「已收盤」的K棒,不含 -1 那根還沒收盤的
+        recent_volumes = volumes[-(self.volume_lookback_bars + 1):-1]
+        volume_shrinking = _volume_shrinking(recent_volumes, self.volume_lookback_bars, self.volume_max_ratio)
+
+        logger.info(
+            f"[策略] {market.symbol} 現價 {market.price} | MA{self.ma_period}(最後4點): "
+            f"{' -> '.join(f'{p:.2f}' for p in ma[-5:-1])} | 量縮: {volume_shrinking} | "
+            f"持倉 {position.side} 數量 {position.quantity}"
+        )
+
+        if not position.is_open:
+            if entry_trough_up and volume_shrinking:
+                logger.info(f"🟢 MA{self.ma_period} 谷底轉向上 + 量縮,觸發做多訊號")
+                return Signal.LONG
+            if entry_peak_down and volume_shrinking:
+                logger.info(f"🔴 MA{self.ma_period} 高點轉向下 + 量縮,觸發做空訊號")
+                return Signal.SHORT
+        else:
+            if position.side == "LONG" and exit_peak_down:
+                logger.info(f"📉 持多單遇 MA{self.ma_period} 高點轉向下,觸發平倉訊號")
+                return Signal.CLOSE
+            if position.side == "SHORT" and exit_trough_up:
+                logger.info(f"📈 持空單遇 MA{self.ma_period} 谷底轉向上,觸發平倉訊號")
                 return Signal.CLOSE
 
         return Signal.HOLD
@@ -1139,6 +1263,25 @@ class BinanceFuturesBot:
                 return "STOP_LOSS"
         return None
 
+    def check_volume_spike_exit(self, position: PositionInfo, market: MarketSnapshot) -> Optional[str]:
+        """
+        移動停利(爆量出場):跟簡單的百分比回落式移動停利不一樣,這個不會因為價格
+        小幅拉回就出場 - 只要 MA7 順著原方向走,就一直抱著;直到出現一根爆量的反向
+        K棒(多單遇爆量收黑賣壓、空單遇爆量收紅買氣),才觸發出場。用的是策略本來就
+        已經抓好的 market.klines,不需要另外呼叫 API。真實/紙交易模式都適用(這個
+        邏輯是幣安交易所本身的訂單類型做不到的,一定要靠機器人自己每輪檢查)。
+        """
+        if not position.is_open or self.config.volume_spike_ratio <= 0:
+            return None
+        spike = _detect_volume_spike(market.klines, self.config.volume_spike_lookback, self.config.volume_spike_ratio)
+        if spike is None:
+            return None
+        if position.side == "LONG" and spike == "SELL":
+            return "VOLUME_SPIKE_EXIT"
+        if position.side == "SHORT" and spike == "BUY":
+            return "VOLUME_SPIKE_EXIT"
+        return None
+
     def check_paper_trailing_stop(self, symbol: str, slot: str, position: PositionInfo,
                                    price_high: float, price_low: float) -> Optional[str]:
         """
@@ -1383,6 +1526,16 @@ class BinanceFuturesBot:
                 mark_price = self.get_mark_price(symbol)
                 close_market = MarketSnapshot(symbol=symbol, price=mark_price, klines=[])
                 self.close_position(position, close_market, reason=risk_exit_reason)
+                position = self.get_position(symbol, slot, market.price)
+
+        # 移動停利(爆量出場):不管百分比止損/止盈有沒有觸發都要檢查 - 這個機制跟
+        # 交易所的訂單類型無關,不管紙交易或真實下單都得靠機器人自己每輪判斷,直接用
+        # 這一輪已經抓到的 market.klines,不用再多打一次 API。
+        if risk_exit_reason is None and position.is_open:
+            volume_exit_reason = self.check_volume_spike_exit(position, market)
+            if volume_exit_reason is not None:
+                risk_exit_reason = volume_exit_reason
+                self.close_position(position, market, reason=volume_exit_reason)
                 position = self.get_position(symbol, slot, market.price)
 
         signal = self.strategy.on_tick(market, position)

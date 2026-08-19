@@ -1535,11 +1535,13 @@ async function refresh() {
         const pnlClass = pnl > 0 ? 'pnl-pos' : (pnl < 0 ? 'pnl-neg' : '');
         // 未實現損益的百分比是相對於這筆倉位「投入的本金(保證金)」算的報酬率(ROE),
         // 不是價格漲跌幅本身 - 名目價值 / 槓桿 = 本金,槓桿愈高同樣價格變動的 % 會愈大。
-        const margin = (pos.quantity && pos.entry_price && s.leverage)
-          ? (pos.quantity * pos.entry_price) / s.leverage : 0;
+        const notional = (pos.quantity && pos.entry_price) ? pos.quantity * pos.entry_price : 0;
+        const margin = (notional && s.leverage) ? notional / s.leverage : 0;
         const pnlPctText = (margin > 0 && pnl !== undefined && pnl !== null)
           ? ` (${pnl >= 0 ? '+' : ''}${(pnl / margin * 100).toFixed(2)}%)` : '';
         const pnlText = (pnl ?? '-') + (pnl != null ? pnlPctText : '');
+        const marginText = margin > 0 ? margin.toFixed(2) : '-';
+        const notionalText = notional > 0 ? notional.toFixed(2) : '-';
 
         // 單向模式("BOTH" 槽)可以選多或空;雙向模式每個槽只對應自己的方向。
         const openSides = slot === 'LONG' ? ['LONG'] : slot === 'SHORT' ? ['SHORT'] : ['LONG', 'SHORT'];
@@ -1557,6 +1559,8 @@ async function refresh() {
             <div class="grid">
               <div class="card"><div class="label">方向/數量</div><div class="value side-${pos.side || 'NONE'}">${pos.side || 'NONE'} ${pos.quantity ?? ''}</div></div>
               <div class="card"><div class="label">進場價</div><div class="value">${pos.entry_price ?? '-'}</div></div>
+              <div class="card"><div class="label">投入本金 (USDT)</div><div class="value">${marginText}</div></div>
+              <div class="card"><div class="label">名目價值 (USDT)</div><div class="value">${notionalText}</div></div>
               <div class="card"><div class="label">未實現損益</div><div class="value ${pnlClass}">${pnlText}</div></div>
               <div class="card"><div class="label">最後訊號</div><div class="value">${slotData.last_signal ?? '-'}</div></div>
             </div>
@@ -1594,6 +1598,7 @@ async function refreshTrades() {
     const shown = sorted.slice(0, 200);
     const rows = shown.map(t => {
       const pnlClass = t.pnl > 0 ? 'pnl-pos' : (t.pnl < 0 ? 'pnl-neg' : '');
+      const amount = t.entry_price * t.quantity;
       return `
         <tr>
           <td>${t.symbol}</td>
@@ -1603,6 +1608,7 @@ async function refreshTrades() {
           <td>${t.entry_price}</td>
           <td>${t.exit_price}</td>
           <td>${t.quantity}</td>
+          <td>${amount.toFixed(2)}</td>
           <td class="${pnlClass}">${t.pnl.toFixed(4)}</td>
           <td>${t.fee.toFixed(4)}</td>
           <td>${t.reason}</td>
@@ -1615,7 +1621,7 @@ async function refreshTrades() {
       <table class="trades">
         <thead><tr>
           <th>幣種</th><th>方向</th><th>進場時間 (UTC)</th><th>出場時間 (UTC)</th>
-          <th>進場價</th><th>出場價</th><th>數量</th><th>損益 (USDT)</th><th>手續費 (USDT)</th><th>原因</th>
+          <th>進場價</th><th>出場價</th><th>數量</th><th>金額 (USDT)</th><th>損益 (USDT)</th><th>手續費 (USDT)</th><th>原因</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>

@@ -1391,7 +1391,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   .symbol-section { margin-top: 2rem; }
   .symbol-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1rem; }
   .symbol-section h2 { font-size: 1.05rem; margin: 0; }
-  .symbol-price { color: #6b7280; font-weight: 600; margin-left: .5rem; }
+  .symbol-price { color: #2563eb; font-weight: 600; margin-left: .5rem; }
   .trading-toggle-btn { background: #ffffff; border: 1px solid #e2e5ea; border-radius: 6px;
                          padding: .35rem .8rem; font-size: .8rem; cursor: pointer; font-weight: 600; }
   .trading-toggle-btn:hover { background: #f5f6f8; }

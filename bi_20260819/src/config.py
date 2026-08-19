@@ -29,6 +29,12 @@ MAX_ENTRY_PRICE_DEVIATION_PCT = float(
 )
 SIGNAL_TIMEFRAME = os.getenv("SIGNAL_TIMEFRAME", "1m").strip()
 LOOP_INTERVAL_SECONDS = int(os.getenv("LOOP_INTERVAL_SECONDS", "10"))
+TRAILING_TP_ACTIVATION_PCT = float(
+    os.getenv("TRAILING_TP_ACTIVATION_PCT", "0.25")
+)
+TRAILING_TP_DISTANCE_PCT = float(
+    os.getenv("TRAILING_TP_DISTANCE_PCT", "0.10")
+)
 TRADING_SYMBOL = "BTC/USDT:USDT"
 STATUS_FILE = PROJECT_ROOT / "status.json"
 PAPER_STATE_FILE = PROJECT_ROOT / "paper_state.json"
@@ -51,3 +57,5 @@ if LOOP_INTERVAL_SECONDS < 1:
     raise RuntimeError("LOOP_INTERVAL_SECONDS must be at least 1.")
 if PAPER_LEVERAGE <= 0:
     raise RuntimeError("PAPER_LEVERAGE must be greater than 0.")
+if TRAILING_TP_ACTIVATION_PCT <= 0 or TRAILING_TP_DISTANCE_PCT <= 0:
+    raise RuntimeError("Trailing take-profit thresholds must be positive.")

@@ -16,6 +16,8 @@ from src.config import (
     PAPER_FEE_RATE,
     PAPER_LEVERAGE,
     PAPER_STATE_FILE,
+    TRAILING_TP_ACTIVATION_PCT,
+    TRAILING_TP_DISTANCE_PCT,
 )
 
 
@@ -80,6 +82,9 @@ class Executor:
             "leverage": 0.0,
             "leveraged_pnl_pct": 0.0,
             "unleveraged_pnl_pct": 0.0,
+            "trailing_tp_armed": False,
+            "peak_unleveraged_pnl_pct": 0.0,
+            "trailing_stop_pct": 0.0,
         }
 
     def _load_paper_state(self):
@@ -300,6 +305,52 @@ class Executor:
             "leverage": leverage,
             "leveraged_pnl_pct": leveraged_pct,
             "unleveraged_pnl_pct": unleveraged_pct,
+            "trailing_tp_armed": bool(
+                position.get("trailingTpArmed", False)
+            ),
+            "peak_unleveraged_pnl_pct": float(
+                position.get("peakUnleveragedPnlPct") or 0
+            ),
+            "trailing_stop_pct": float(
+                position.get("trailingStopPct") or 0
+            ),
+        }
+
+    def update_trailing_take_profit(self, symbol, position_side):
+        if not self.dry_run:
+            return None
+        position = self.get_positions(symbol).get(position_side)
+        if not position:
+            return None
+
+        summary = self.position_summary(symbol, position_side, position)
+        current_pct = summary["unleveraged_pnl_pct"]
+        armed = bool(position.get("trailingTpArmed", False))
+        peak_pct = float(position.get("peakUnleveragedPnlPct") or 0)
+
+        if not armed:
+            if current_pct < TRAILING_TP_ACTIVATION_PCT:
+                return {"should_close": False, "armed": False}
+            position["trailingTpArmed"] = True
+            position["peakUnleveragedPnlPct"] = current_pct
+            position["trailingStopPct"] = TRAILING_TP_ACTIVATION_PCT
+            self._save_paper_state()
+            return {"should_close": False, "armed": True}
+
+        peak_pct = max(peak_pct, current_pct)
+        stop_pct = max(
+            TRAILING_TP_ACTIVATION_PCT,
+            peak_pct - TRAILING_TP_DISTANCE_PCT,
+        )
+        position["peakUnleveragedPnlPct"] = peak_pct
+        position["trailingStopPct"] = stop_pct
+        self._save_paper_state()
+        return {
+            "should_close": current_pct <= stop_pct,
+            "armed": True,
+            "current_pct": current_pct,
+            "peak_pct": peak_pct,
+            "stop_pct": stop_pct,
         }
 
     def position_summaries(self, symbol):
@@ -318,6 +369,7 @@ class Executor:
         position_side=None,
         reduce_only=False,
         reference_price=None,
+        exit_reason="strategy",
     ):
         amount = float(amount)
         if amount <= 0:
@@ -330,7 +382,9 @@ class Executor:
 
         if self.dry_run:
             if reduce_only:
-                return self._close_paper_position(symbol, position_side)
+                return self._close_paper_position(
+                    symbol, position_side, exit_reason
+                )
 
             symbol_positions = self.paper_positions.setdefault(symbol, {})
             if symbol_positions.get(position_side):
@@ -363,6 +417,9 @@ class Executor:
                 "initialMargin": trade_value / self.paper_leverage,
                 "hedged": True,
                 "openedAt": self.utc_now(),
+                "trailingTpArmed": False,
+                "peakUnleveragedPnlPct": 0.0,
+                "trailingStopPct": 0.0,
             }
             self._save_paper_state()
             print(
@@ -391,7 +448,9 @@ class Executor:
             params=params,
         )
 
-    def _close_paper_position(self, symbol, position_side):
+    def _close_paper_position(
+        self, symbol, position_side, exit_reason="strategy"
+    ):
         position = self.get_positions(symbol).get(position_side)
         if not position:
             return None
@@ -425,6 +484,7 @@ class Executor:
             "net_realized_pnl": net_pnl,
             "opened_at": position.get("openedAt"),
             "closed_at": self.utc_now(),
+            "exit_reason": exit_reason,
         }
         self.trade_history.append(trade)
         self.paper_positions.get(symbol, {}).pop(position_side, None)
@@ -435,7 +495,7 @@ class Executor:
         )
         return trade
 
-    def close_position(self, symbol, position_side):
+    def close_position(self, symbol, position_side, exit_reason="strategy"):
         position = self.get_positions(symbol).get(position_side)
         if not position:
             return None
@@ -452,4 +512,5 @@ class Executor:
             amount,
             position_side=position_side,
             reduce_only=True,
+            exit_reason=exit_reason,
         )

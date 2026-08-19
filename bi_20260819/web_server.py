@@ -33,6 +33,9 @@ def empty_position(side):
         "leverage": 0.0,
         "leveraged_pnl_pct": 0.0,
         "unleveraged_pnl_pct": 0.0,
+        "trailing_tp_armed": False,
+        "peak_unleveraged_pnl_pct": 0.0,
+        "trailing_stop_pct": 0.0,
     }
 
 
@@ -164,6 +167,7 @@ def api_history_download():
         "symbol",
         "side",
         "leverage",
+        "exit_reason",
         "quantity",
         "entry_price",
         "exit_price",

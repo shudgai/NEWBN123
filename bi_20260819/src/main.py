@@ -269,6 +269,25 @@ class TradingBot:
             self.current_status["current_price"] = self.executor.get_mark_price(
                 TRADING_SYMBOL
             )
+            trailing_closed_sides = set()
+            for position_side in ("long", "short"):
+                trailing_state = self.executor.update_trailing_take_profit(
+                    TRADING_SYMBOL, position_side
+                )
+                if trailing_state and trailing_state.get("should_close"):
+                    print(
+                        f"移動停利觸發，平{position_side}單："
+                        f"current={trailing_state['current_pct']:.3f}%, "
+                        f"peak={trailing_state['peak_pct']:.3f}%, "
+                        f"stop={trailing_state['stop_pct']:.3f}%"
+                    )
+                    self.executor.close_position(
+                        TRADING_SYMBOL,
+                        position_side,
+                        exit_reason="trailing_tp",
+                    )
+                    trailing_closed_sides.add(position_side)
+
             if result["candle_time"] == self.last_processed_candle:
                 self.refresh_status()
                 return
@@ -296,14 +315,22 @@ class TradingBot:
             close_short = short_quantity > 0 and result["ma7_rising_two"]
             if close_long:
                 print("MA7 已連續兩根向下，平多單。")
-                self.executor.close_position(TRADING_SYMBOL, "long")
+                self.executor.close_position(
+                    TRADING_SYMBOL, "long", exit_reason="ma7"
+                )
                 long_quantity = 0.0
             if close_short:
                 print("MA7 已連續兩根向上，平空單。")
-                self.executor.close_position(TRADING_SYMBOL, "short")
+                self.executor.close_position(
+                    TRADING_SYMBOL, "short", exit_reason="ma7"
+                )
                 short_quantity = 0.0
 
-            if signal == "long" and long_quantity == 0:
+            if (
+                signal == "long"
+                and long_quantity == 0
+                and "long" not in trailing_closed_sides
+            ):
                 amount = self.executor.calculate_amount(
                     TRADING_SYMBOL,
                     target_percentage=TARGET_PERCENTAGE,
@@ -316,7 +343,11 @@ class TradingBot:
                     position_side="long",
                     reference_price=result["indicators"]["close"],
                 )
-            elif signal == "short" and short_quantity == 0:
+            elif (
+                signal == "short"
+                and short_quantity == 0
+                and "short" not in trailing_closed_sides
+            ):
                 amount = self.executor.calculate_amount(
                     TRADING_SYMBOL,
                     target_percentage=TARGET_PERCENTAGE,
@@ -347,6 +378,7 @@ class TradingBot:
             trade = self.executor.close_position(
                 TRADING_SYMBOL,
                 position_side,
+                exit_reason="manual",
             )
             self.refresh_status()
             return trade is not None

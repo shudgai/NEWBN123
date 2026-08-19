@@ -13,10 +13,12 @@ from src.config import (
     MAX_CLOSE_MOVE_ATR,
     MAX_POSITION_VALUE_USDT,
     MIN_ENTRY_ATR_PCT,
-    MIN_MA7_TURN_ATR_RATIO,
+    MIN_ENTRY_MA7_TURN_ATR_RATIO,
+    MIN_EXIT_MA7_TURN_ATR_RATIO,
     PAPER_FEE_RATE,
     SIGNAL_TIMEFRAME,
     STATUS_FILE,
+    STOP_LOSS_PCT,
     TARGET_PERCENTAGE,
     TRADING_SYMBOL,
 )
@@ -55,6 +57,9 @@ class TradingBot:
             "symbol": TRADING_SYMBOL,
             "current_price": None,
             "signal_timeframe": SIGNAL_TIMEFRAME,
+            "entry_ma7_turn_atr_ratio": MIN_ENTRY_MA7_TURN_ATR_RATIO,
+            "exit_ma7_turn_atr_ratio": MIN_EXIT_MA7_TURN_ATR_RATIO,
+            "stop_loss_pct": STOP_LOSS_PCT,
             "positions": self.executor.position_summaries(TRADING_SYMBOL),
             "indicators": {
                 "ma7": None,
@@ -117,6 +122,38 @@ class TradingBot:
         if not position:
             return 0.0
         return float(position.get("contracts") or position.get("amount") or 0)
+
+    @staticmethod
+    def adverse_move_pct(position_side, entry_price, mark_price):
+        if entry_price <= 0 or mark_price <= 0:
+            return 0.0
+        direction = 1 if position_side == "long" else -1
+        return (entry_price - mark_price) / entry_price * 100 * direction
+
+    def enforce_fixed_stop_loss(self, current_price):
+        stopped_sides = set()
+        positions = self.executor.get_positions(TRADING_SYMBOL)
+        for position_side in ("long", "short"):
+            position = positions.get(position_side)
+            if self.position_quantity(position) <= 0:
+                continue
+            entry_price = float(position.get("entryPrice") or 0)
+            mark_price = float(position.get("markPrice") or current_price or 0)
+            adverse_move = self.adverse_move_pct(
+                position_side, entry_price, mark_price
+            )
+            if adverse_move < STOP_LOSS_PCT:
+                continue
+            print(
+                f"固定止損觸發：{position_side.upper()} "
+                f"反向 {adverse_move:.3f}%（門檻 {STOP_LOSS_PCT:.3f}%）。"
+            )
+            trade = self.executor.close_position(
+                TRADING_SYMBOL, position_side, exit_reason="stop_loss"
+            )
+            if trade is not None:
+                stopped_sides.add(position_side)
+        return stopped_sides
 
     def open_signal_if_flat(self, signal, result, blocked_sides=None):
         blocked_sides = blocked_sides or set()
@@ -192,7 +229,11 @@ class TradingBot:
         )
         low_volatility = (
             atr_pct < MIN_ENTRY_ATR_PCT
-            or ma7_turn_atr_ratio < MIN_MA7_TURN_ATR_RATIO
+            or ma7_turn_atr_ratio < MIN_ENTRY_MA7_TURN_ATR_RATIO
+        )
+        exit_low_volatility = (
+            atr_pct < MIN_ENTRY_ATR_PCT
+            or ma7_turn_atr_ratio < MIN_EXIT_MA7_TURN_ATR_RATIO
         )
         candle_range = float(latest["high"]) - float(latest["low"])
         close_move = abs(float(latest["close"]) - float(previous["close"]))
@@ -232,6 +273,7 @@ class TradingBot:
             "signal": signal,
             "spike_detected": spike_detected,
             "low_volatility": low_volatility,
+            "exit_low_volatility": exit_low_volatility,
             "ma7_turns_up": ma7_turns_up,
             "ma7_turns_down": ma7_turns_down,
             "ma25_rising": ma25_rising,
@@ -259,6 +301,13 @@ class TradingBot:
         }
 
     def process_symbol(self):
+        with self.lock:
+            current_price = self.executor.get_mark_price(TRADING_SYMBOL)
+            self.current_status["current_price"] = current_price
+            stop_closed_sides = self.enforce_fixed_stop_loss(current_price)
+            if stop_closed_sides:
+                self.refresh_status()
+
         df = self.data_handler.fetch_ohlcv(
             TRADING_SYMBOL,
             timeframe=SIGNAL_TIMEFRAME,
@@ -266,6 +315,7 @@ class TradingBot:
         )
         result = self.calculate_hybrid_signal(df)
         if result is None:
+            self.refresh_status()
             return
 
         with self.lock:
@@ -275,14 +325,12 @@ class TradingBot:
             self.current_status["low_volatility_protection"] = result[
                 "low_volatility"
             ]
-            self.current_status["current_price"] = self.executor.get_mark_price(
-                TRADING_SYMBOL
-            )
+            self.current_status["current_price"] = current_price
             if result["candle_time"] == self.last_processed_candle:
                 self.refresh_status()
                 return
 
-            closed_sides = set()
+            closed_sides = set(stop_closed_sides)
 
             positions = self.executor.get_positions(TRADING_SYMBOL)
             long_quantity = self.position_quantity(positions["long"])
@@ -306,15 +354,15 @@ class TradingBot:
             close_long = (
                 long_quantity > 0
                 and result["ma7_turns_down"]
-                and not result["low_volatility"]
+                and not result["exit_low_volatility"]
             )
             close_short = (
                 short_quantity > 0
                 and result["ma7_turns_up"]
-                and not result["low_volatility"]
+                and not result["exit_low_volatility"]
             )
             if (
-                result["low_volatility"]
+                result["exit_low_volatility"]
                 and (
                     (long_quantity > 0 and result["ma7_turns_down"])
                     or (short_quantity > 0 and result["ma7_turns_up"])

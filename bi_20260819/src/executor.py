@@ -2,6 +2,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import ccxt
 
@@ -17,6 +18,8 @@ from src.config import (
     PAPER_LEVERAGE,
     PAPER_STATE_FILE,
 )
+
+TAIPEI_TIMEZONE = ZoneInfo("Asia/Taipei")
 
 
 class Executor:
@@ -65,6 +68,18 @@ class Executor:
     @staticmethod
     def utc_now():
         return datetime.now(timezone.utc).isoformat()
+
+    @staticmethod
+    def to_taipei_time(value):
+        if not value:
+            return value
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return value
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(TAIPEI_TIMEZONE).isoformat()
 
     @staticmethod
     def empty_position(symbol, side):
@@ -144,7 +159,12 @@ class Executor:
         return self.total_realized_pnl if self.dry_run else 0.0
 
     def get_trade_history(self, trade_date=None):
-        history = list(reversed(self.trade_history))
+        history = []
+        for stored_trade in reversed(self.trade_history):
+            trade = dict(stored_trade)
+            trade["opened_at"] = self.to_taipei_time(trade.get("opened_at"))
+            trade["closed_at"] = self.to_taipei_time(trade.get("closed_at"))
+            history.append(trade)
         if trade_date:
             history = [
                 trade

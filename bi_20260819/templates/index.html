@@ -82,7 +82,7 @@
 
     <section class="history">
         <div class="history-head">
-            <h2>&#x6b77;&#x53f2;&#x4ea4;&#x6613; <span class="unit">(UTC)</span></h2>
+            <h2>&#x6b77;&#x53f2;&#x4ea4;&#x6613; <span class="unit">(&#x53f0;&#x5317;&#x6642;&#x9593; UTC+8)</span></h2>
             <div class="history-actions">
                 <input id="history-date" type="date" onchange="loadHistory()">
                 <button class="btn" onclick="loadHistory()"><i data-lucide="search"></i>&#x67e5;&#x8a62;</button>
@@ -95,6 +95,9 @@
 <script>
 let token=document.querySelector("meta[name=control-token]").content;
 const fmt=(v,d=2)=>Number(v||0).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const taipeiDateTime=new Intl.DateTimeFormat("zh-TW",{timeZone:"Asia/Taipei",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false});
+function fmtTaipeiTime(v){if(!v)return "--";const d=new Date(v);return Number.isNaN(d.getTime())?v:taipeiDateTime.format(d);}
+function todayInTaipei(){const parts=new Intl.DateTimeFormat("en-US",{timeZone:"Asia/Taipei",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());const values=Object.fromEntries(parts.map(p=>[p.type,p.value]));return values.year+"-"+values.month+"-"+values.day;}
 function pnlClass(v){return Number(v)>0?"positive":Number(v)<0?"negative":"";}
 function alertMessage(v){const e=document.getElementById("alert");e.textContent=v||"";e.classList.toggle("visible",Boolean(v));}
 function cell(label,value,id,cls=""){return "<div class=\"cell\"><div class=\"label\">"+label+"</div><div id=\""+id+"\" class=\"cell-value "+cls+"\">"+value+"</div></div>";}
@@ -148,9 +151,9 @@ async function loadStatus(){try{const r=await fetch("/api/status",{cache:"no-sto
 async function controlBot(action){try{const p=await api("/api/bot",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action})});render(p.status);}catch(e){alertMessage(e.message);}finally{loadStatus();}}
 async function openPosition(side){try{const p=await api("/api/position/open",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({side})});render(p.status);alertMessage(p.message);}catch(e){alertMessage(e.message);}}
 async function closePosition(side){try{const p=await api("/api/position/close",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({side})});render(p.status);await loadHistory();}catch(e){alertMessage(e.message);}}
-async function loadHistory(){try{const d=document.getElementById("history-date").value;const p=await api("/api/history?date="+encodeURIComponent(d),{cache:"no-store"});const b=document.getElementById("history-body");b.innerHTML="";for(const t of p.trades){const tr=document.createElement("tr");const vals=[t.opened_at,t.closed_at,t.side.toUpperCase(),fmt(t.leverage||1,0)+"X",String(t.exit_reason||"legacy").toUpperCase(),fmt(t.quantity,6),fmt(t.entry_price),fmt(t.exit_price),fmt(t.trade_value),fmt(t.gross_pnl),fmt(t.entry_fee,4),fmt(t.exit_fee,4),fmt(t.total_fees,4),fmt(t.net_realized_pnl)];vals.forEach((v,i)=>{const td=document.createElement("td");td.textContent=v;if(i===13)td.className=pnlClass(t.net_realized_pnl);tr.appendChild(td);});b.appendChild(tr);}document.getElementById("history-empty").style.display=p.trades.length?"none":"block";}catch(e){alertMessage(e.message);}}
+async function loadHistory(){try{const d=document.getElementById("history-date").value;const p=await api("/api/history?date="+encodeURIComponent(d),{cache:"no-store"});const b=document.getElementById("history-body");b.innerHTML="";for(const t of p.trades){const tr=document.createElement("tr");const vals=[fmtTaipeiTime(t.opened_at),fmtTaipeiTime(t.closed_at),t.side.toUpperCase(),fmt(t.leverage||1,0)+"X",String(t.exit_reason||"legacy").toUpperCase(),fmt(t.quantity,6),fmt(t.entry_price),fmt(t.exit_price),fmt(t.trade_value),fmt(t.gross_pnl),fmt(t.entry_fee,4),fmt(t.exit_fee,4),fmt(t.total_fees,4),fmt(t.net_realized_pnl)];vals.forEach((v,i)=>{const td=document.createElement("td");td.textContent=v;if(i===13)td.className=pnlClass(t.net_realized_pnl);tr.appendChild(td);});b.appendChild(tr);}document.getElementById("history-empty").style.display=p.trades.length?"none":"block";}catch(e){alertMessage(e.message);}}
 async function downloadHistory(){try{const d=document.getElementById("history-date").value;const r=await fetch("/api/history/download?date="+encodeURIComponent(d),{headers:{"X-Control-Token":token}});if(!r.ok)throw new Error("Download failed");const blob=await r.blob(),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="btc-paper-trades-"+(d||"all")+".csv";a.click();URL.revokeObjectURL(a.href);}catch(e){alertMessage(e.message);}}
-document.getElementById("history-date").value=new Date().toISOString().slice(0,10);if(window.lucide)window.lucide.createIcons();loadStatus();loadHistory();setInterval(loadStatus,3000);setInterval(loadHistory,3000);
+document.getElementById("history-date").value=todayInTaipei();if(window.lucide)window.lucide.createIcons();loadStatus();loadHistory();setInterval(loadStatus,3000);setInterval(loadHistory,3000);
 </script>
 </body>
 </html>

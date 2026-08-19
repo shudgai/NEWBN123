@@ -114,7 +114,10 @@ class BotManager:
 
     def status(self):
         with self.bot.lock:
-            return dict(self.bot.current_status)
+            status = dict(self.bot.current_status)
+            status["last_processed_candle"] = self.bot.executor.to_taipei_time(status.get("last_processed_candle"))
+            status["time_zone"] = "Asia/Taipei"
+            return status
 
     def history(self, trade_date=None):
         with self.bot.lock:

@@ -185,21 +185,29 @@ class TradingBot:
             range_atr_ratio > MAX_CANDLE_RANGE_ATR
             or close_move_atr_ratio > MAX_CLOSE_MOVE_ATR
         )
+        latest_green = latest_close > float(latest["open"])
+        latest_red = latest_close < float(latest["open"])
+        previous_green = float(previous["close"]) > float(previous["open"])
+        previous_red = float(previous["close"]) < float(previous["open"])
+        ma7_rising_now = float(latest["ma7"]) > float(previous["ma7"])
+        ma7_falling_now = float(latest["ma7"]) < float(previous["ma7"])
         signal = "hold"
-        long_timing = ma7_turns_up or ma7_rising_two
-        short_timing = ma7_turns_down or ma7_falling_two
+        long_timing = latest_green and (
+            ma7_turns_up or (previous_green and ma7_rising_now)
+        )
+        short_timing = latest_red and (
+            ma7_turns_down or (previous_red and ma7_falling_now)
+        )
         if (
             not spike_detected
             and not low_volatility
             and long_timing
-            and latest_close > float(latest["ma25"])
         ):
             signal = "long"
         elif (
             not spike_detected
             and not low_volatility
             and short_timing
-            and latest_close < float(latest["ma25"])
         ):
             signal = "short"
 
@@ -221,6 +229,12 @@ class TradingBot:
             "ma99_rising": ma99_rising,
             "ma25_falling": ma25_falling,
             "ma99_falling": ma99_falling,
+            "latest_green": latest_green,
+            "latest_red": latest_red,
+            "previous_green": previous_green,
+            "previous_red": previous_red,
+            "long_timing": long_timing,
+            "short_timing": short_timing,
             "candle_time": candle_time,
             "indicators": {
                 "ma7": float(latest["ma7"]),

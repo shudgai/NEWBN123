@@ -14,7 +14,7 @@ DRY_RUN = True if PAPER_ONLY else (
 )
 HEDGE_MODE = True
 PAPER_BALANCE_USDT = float(os.getenv("PAPER_BALANCE_USDT", "150"))
-PAPER_LEVERAGE = float(os.getenv("PAPER_LEVERAGE", "1"))
+PAPER_LEVERAGE = float(os.getenv("PAPER_LEVERAGE", "5"))
 PAPER_FEE_RATE = float(os.getenv("PAPER_FEE_RATE", "0.0005"))
 TARGET_PERCENTAGE = float(os.getenv("TARGET_PERCENTAGE", "0.50"))
 MAX_POSITION_VALUE_USDT = float(os.getenv("MAX_POSITION_VALUE_USDT", "75"))

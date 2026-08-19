@@ -163,6 +163,7 @@ def api_history_download():
         "opened_at",
         "symbol",
         "side",
+        "leverage",
         "quantity",
         "entry_price",
         "exit_price",

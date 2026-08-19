@@ -96,6 +96,20 @@ class Executor:
             )
             self.paper_positions = state.get("positions") or {}
             self.trade_history = state.get("trade_history") or []
+            leverage_updated = False
+            for positions in self.paper_positions.values():
+                for position in positions.values():
+                    quantity = float(position.get("contracts") or 0)
+                    entry_price = float(position.get("entryPrice") or 0)
+                    trade_value = quantity * entry_price
+                    if float(position.get("leverage") or 0) != self.paper_leverage:
+                        position["leverage"] = self.paper_leverage
+                        position["initialMargin"] = (
+                            trade_value / self.paper_leverage
+                        )
+                        leverage_updated = True
+            if leverage_updated:
+                self._save_paper_state()
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             self.paper_balance = self.initial_paper_balance
             self.total_realized_pnl = 0.0
@@ -399,6 +413,7 @@ class Executor:
             "id": position.get("id") or uuid.uuid4().hex,
             "symbol": symbol,
             "side": position_side,
+            "leverage": float(position.get("leverage") or 1),
             "quantity": quantity,
             "entry_price": entry_price,
             "exit_price": exit_price,

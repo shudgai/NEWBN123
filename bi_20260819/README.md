@@ -40,13 +40,11 @@ TARGET_PERCENTAGE=0.50
 MAX_POSITION_VALUE_USDT=75
 MAX_CANDLE_RANGE_ATR=3.0
 MAX_CLOSE_MOVE_ATR=3.0
-MIN_ENTRY_ATR_PCT=0.03
-MIN_MA7_TURN_ATR_RATIO=0.05
+MIN_ENTRY_ATR_PCT=0.05
+MIN_MA7_TURN_ATR_RATIO=0.35
 MAX_ENTRY_PRICE_DEVIATION_PCT=0.5
 SIGNAL_TIMEFRAME=1m
 LOOP_INTERVAL_SECONDS=10
-TRAILING_TP_ACTIVATION_PCT=0.25
-TRAILING_TP_DISTANCE_PCT=0.10
 ```
 
 `PAPER_FEE_RATE=0.0005` 代表每次進場及出場各收取成交金額的 0.05%。
@@ -56,6 +54,6 @@ TRAILING_TP_DISTANCE_PCT=0.10
 
 防插針只阻擋新開倉，不阻擋策略或手動平倉。單根已收盤 K 線振幅超過前期 ATR14 的 3 倍，或收盤變動超過 ATR14 的 3 倍時暫停開倉；標記價偏離最近收盤超過 0.5% 時也會取消新倉。
 
-第一根綠 K 若形成 MA7 轉向上即可開多；否則連續第二根綠 K 且 MA7 向上時開多。開空為鏡像條件，第一根紅 K 形成 MA7 轉下即可開空，最晚於連續第二根紅 K 且 MA7 向下時開空。MA25、MA99 保留為趨勢參考。平倉需 MA7 反向連續兩根已收盤 K 線確認：多單連續兩根向下才平倉，空單連續兩根向上才平倉。
+MA7 使用已收盤 K 線確認轉折：谷底正式轉上時開多，高點正式轉下時平多；若當下符合開倉保護條件，同一轉下訊號接著開空，並在下一個谷底轉上時平空、再接回多單，依此循環。持倉時若處於小波動，MA7 的微幅轉折不平倉，等待波動恢復後的有效轉折。MA25、MA99 僅保留為趨勢參考，不使用移動停利。
 
-小波動不開倉：只有當 ATR14 低於 BTC 現價的 0.03%，而且 MA7 轉折幅度也低於 ATR14 的 5% 時，才視為小波動；此時 Entry Guard 顯示 LOW VOL。
+小波動不開倉也不因 MA7 微幅轉折平倉：ATR14 必須至少為 BTC 現價的 0.05%，且 MA7 轉折幅度必須至少為 ATR14 的 35%；任一條件不足時 Entry Guard 顯示 LOW VOL。開多還需轉上 K 線收綠，開空為鏡像收紅。

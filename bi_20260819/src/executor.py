@@ -16,8 +16,6 @@ from src.config import (
     PAPER_FEE_RATE,
     PAPER_LEVERAGE,
     PAPER_STATE_FILE,
-    TRAILING_TP_ACTIVATION_PCT,
-    TRAILING_TP_DISTANCE_PCT,
 )
 
 
@@ -82,9 +80,6 @@ class Executor:
             "leverage": 0.0,
             "leveraged_pnl_pct": 0.0,
             "unleveraged_pnl_pct": 0.0,
-            "trailing_tp_armed": False,
-            "peak_unleveraged_pnl_pct": 0.0,
-            "trailing_stop_pct": 0.0,
         }
 
     def _load_paper_state(self):
@@ -305,59 +300,6 @@ class Executor:
             "leverage": leverage,
             "leveraged_pnl_pct": leveraged_pct,
             "unleveraged_pnl_pct": unleveraged_pct,
-            "trailing_tp_armed": bool(
-                position.get("trailingTpArmed", False)
-            ),
-            "peak_unleveraged_pnl_pct": float(
-                position.get("peakUnleveragedPnlPct") or 0
-            ),
-            "trailing_stop_pct": float(
-                position.get("trailingStopPct") or 0
-            ),
-        }
-
-    def update_trailing_take_profit(self, symbol, position_side):
-        if not self.dry_run:
-            return None
-        position = self.get_positions(symbol).get(position_side)
-        if not position:
-            return None
-
-        summary = self.position_summary(symbol, position_side, position)
-        current_pct = summary["unleveraged_pnl_pct"]
-        armed = bool(position.get("trailingTpArmed", False))
-        peak_pct = float(position.get("peakUnleveragedPnlPct") or 0)
-
-        if not armed:
-            if current_pct < TRAILING_TP_ACTIVATION_PCT:
-                return {"should_close": False, "armed": False}
-            position["trailingTpArmed"] = True
-            position["peakUnleveragedPnlPct"] = current_pct
-            position["trailingStopPct"] = TRAILING_TP_ACTIVATION_PCT
-            self._save_paper_state()
-            return {"should_close": False, "armed": True}
-
-        peak_pct = max(peak_pct, current_pct)
-        stop_pct = max(
-            TRAILING_TP_ACTIVATION_PCT,
-            peak_pct - TRAILING_TP_DISTANCE_PCT,
-        )
-        position["peakUnleveragedPnlPct"] = peak_pct
-        position["trailingStopPct"] = stop_pct
-        self._save_paper_state()
-        close_result = self.estimated_close_result(
-            symbol, position_side, position
-        )
-        return {
-            "should_close": (
-                current_pct <= stop_pct
-                and close_result["net_pnl"] > 0
-            ),
-            "armed": True,
-            "current_pct": current_pct,
-            "peak_pct": peak_pct,
-            "stop_pct": stop_pct,
-            "estimated_net_pnl": close_result["net_pnl"],
         }
 
     def estimated_close_result(self, symbol, position_side, position=None):
@@ -386,14 +328,6 @@ class Executor:
             "total_fees": total_fees,
             "net_pnl": gross_pnl - total_fees,
         }
-
-    def has_net_profit_after_fees(self, symbol, position_side):
-        position = self.get_positions(symbol).get(position_side)
-        if not position:
-            return False
-        return self.estimated_close_result(
-            symbol, position_side, position
-        )["net_pnl"] > 0
 
     def position_summaries(self, symbol):
         positions = self.get_positions(symbol)
@@ -467,9 +401,6 @@ class Executor:
                 "initialMargin": trade_value / self.paper_leverage,
                 "hedged": True,
                 "openedAt": self.utc_now(),
-                "trailingTpArmed": False,
-                "peakUnleveragedPnlPct": 0.0,
-                "trailingStopPct": 0.0,
             }
             self._save_paper_state()
             print(

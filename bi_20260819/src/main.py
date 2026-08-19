@@ -178,14 +178,6 @@ class TradingBot:
             float(before_previous["ma7"]) < float(previous["ma7"])
             and float(latest["ma7"]) < float(previous["ma7"])
         )
-        ma7_rising_two = (
-            float(before_previous["ma7"]) < float(previous["ma7"])
-            < float(latest["ma7"])
-        )
-        ma7_falling_two = (
-            float(before_previous["ma7"]) > float(previous["ma7"])
-            > float(latest["ma7"])
-        )
         ma25_rising = float(latest["ma25"]) > float(previous["ma25"])
         ma99_rising = float(latest["ma99"]) > float(previous["ma99"])
         ma25_falling = float(latest["ma25"]) < float(previous["ma25"])
@@ -200,7 +192,7 @@ class TradingBot:
         )
         low_volatility = (
             atr_pct < MIN_ENTRY_ATR_PCT
-            and ma7_turn_atr_ratio < MIN_MA7_TURN_ATR_RATIO
+            or ma7_turn_atr_ratio < MIN_MA7_TURN_ATR_RATIO
         )
         candle_range = float(latest["high"]) - float(latest["low"])
         close_move = abs(float(latest["close"]) - float(previous["close"]))
@@ -214,15 +206,9 @@ class TradingBot:
         latest_red = latest_close < float(latest["open"])
         previous_green = float(previous["close"]) > float(previous["open"])
         previous_red = float(previous["close"]) < float(previous["open"])
-        ma7_rising_now = float(latest["ma7"]) > float(previous["ma7"])
-        ma7_falling_now = float(latest["ma7"]) < float(previous["ma7"])
         signal = "hold"
-        long_timing = latest_green and (
-            ma7_turns_up or (previous_green and ma7_rising_now)
-        )
-        short_timing = latest_red and (
-            ma7_turns_down or (previous_red and ma7_falling_now)
-        )
+        long_timing = ma7_turns_up and latest_green
+        short_timing = ma7_turns_down and latest_red
         if (
             not spike_detected
             and not low_volatility
@@ -248,8 +234,6 @@ class TradingBot:
             "low_volatility": low_volatility,
             "ma7_turns_up": ma7_turns_up,
             "ma7_turns_down": ma7_turns_down,
-            "ma7_rising_two": ma7_rising_two,
-            "ma7_falling_two": ma7_falling_two,
             "ma25_rising": ma25_rising,
             "ma99_rising": ma99_rising,
             "ma25_falling": ma25_falling,
@@ -294,34 +278,11 @@ class TradingBot:
             self.current_status["current_price"] = self.executor.get_mark_price(
                 TRADING_SYMBOL
             )
-            closed_sides = set()
-            for position_side in ("long", "short"):
-                trailing_state = self.executor.update_trailing_take_profit(
-                    TRADING_SYMBOL, position_side
-                )
-                if trailing_state and trailing_state.get("should_close"):
-                    print(
-                        f"移動停利觸發，平{position_side}單："
-                        f"current={trailing_state['current_pct']:.3f}%, "
-                        f"peak={trailing_state['peak_pct']:.3f}%, "
-                        f"stop={trailing_state['stop_pct']:.3f}%"
-                    )
-                    self.executor.close_position(
-                        TRADING_SYMBOL,
-                        position_side,
-                        exit_reason="trailing_tp",
-                    )
-                    closed_sides.add(position_side)
-
             if result["candle_time"] == self.last_processed_candle:
-                if closed_sides:
-                    self.open_signal_if_flat(
-                        result["signal"],
-                        result,
-                        blocked_sides=closed_sides,
-                    )
                 self.refresh_status()
                 return
+
+            closed_sides = set()
 
             positions = self.executor.get_positions(TRADING_SYMBOL)
             long_quantity = self.position_quantity(positions["long"])
@@ -342,43 +303,33 @@ class TradingBot:
                     f"{result['indicators']['ma7_turn_atr_ratio']:.3f}"
                 )
 
-            long_ma7_exit = (
-                long_quantity > 0 and result["ma7_falling_two"]
-            )
-            short_ma7_exit = (
-                short_quantity > 0 and result["ma7_rising_two"]
-            )
             close_long = (
-                long_ma7_exit
-                and self.executor.has_net_profit_after_fees(
-                    TRADING_SYMBOL, "long"
-                )
+                long_quantity > 0
+                and result["ma7_turns_down"]
+                and not result["low_volatility"]
             )
             close_short = (
-                short_ma7_exit
-                and self.executor.has_net_profit_after_fees(
-                    TRADING_SYMBOL, "short"
-                )
+                short_quantity > 0
+                and result["ma7_turns_up"]
+                and not result["low_volatility"]
             )
-            if long_ma7_exit and not close_long:
-                print(
-                    "MA7 多單平倉訊號已出現，但扣除雙邊手續費後"
-                    "尚未獲利，繼續持倉。"
+            if (
+                result["low_volatility"]
+                and (
+                    (long_quantity > 0 and result["ma7_turns_down"])
+                    or (short_quantity > 0 and result["ma7_turns_up"])
                 )
-            if short_ma7_exit and not close_short:
-                print(
-                    "MA7 空單平倉訊號已出現，但扣除雙邊手續費後"
-                    "尚未獲利，繼續持倉。"
-                )
+            ):
+                print("小波動中的 MA7 轉折不平倉，繼續持倉。")
             if close_long:
-                print("MA7 已連續兩根向下，平多單。")
+                print("MA7 高點已正式轉下，平多單。")
                 self.executor.close_position(
                     TRADING_SYMBOL, "long", exit_reason="ma7"
                 )
                 long_quantity = 0.0
                 closed_sides.add("long")
             if close_short:
-                print("MA7 已連續兩根向上，平空單。")
+                print("MA7 低點已正式轉上，平空單。")
                 self.executor.close_position(
                     TRADING_SYMBOL, "short", exit_reason="ma7"
                 )
@@ -407,6 +358,34 @@ class TradingBot:
                 TRADING_SYMBOL,
                 position_side,
                 exit_reason="manual",
+            )
+            self.refresh_status()
+            return trade is not None
+
+    def manual_open(self, position_side):
+        if position_side not in {"long", "short"}:
+            raise ValueError("position_side must be long or short")
+        with self.lock:
+            positions = self.executor.get_positions(TRADING_SYMBOL)
+            if any(
+                self.position_quantity(positions[side]) > 0
+                for side in ("long", "short")
+            ):
+                self.refresh_status()
+                return False
+
+            reference_price = self.executor.get_mark_price(TRADING_SYMBOL)
+            amount = self.executor.calculate_amount(
+                TRADING_SYMBOL,
+                target_percentage=TARGET_PERCENTAGE,
+                reference_price=reference_price,
+            )
+            trade = self.executor.place_order(
+                TRADING_SYMBOL,
+                "buy" if position_side == "long" else "sell",
+                amount,
+                position_side=position_side,
+                reference_price=reference_price,
             )
             self.refresh_status()
             return trade is not None

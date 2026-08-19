@@ -21,7 +21,7 @@
         .actions,.history-actions { display:flex; gap:8px; align-items:center; }
         .btn { min-height:39px; border:1px solid var(--line); border-radius:6px; padding:0 13px; display:inline-flex; align-items:center; justify-content:center; gap:7px; background:#fff; color:var(--ink); cursor:pointer; font-weight:650; }
         .btn svg { width:17px; height:17px; } .btn:disabled { opacity:.42; cursor:not-allowed; }
-        .start { background:var(--green); color:#fff; border-color:var(--green); } .stop { color:var(--red); border-color:#e7a6a6; } .close-long,.close-short { color:#fff; } .close-long { background:var(--green); border-color:var(--green); } .close-short { background:var(--red); border-color:var(--red); }
+        .start { background:var(--green); color:#fff; border-color:var(--green); } .stop { color:var(--red); border-color:#e7a6a6; } .close-long,.close-short { color:#fff; } .close-long { background:var(--green); border-color:var(--green); } .close-short { background:var(--red); border-color:var(--red); } .open-long { color:var(--green); border-color:var(--green); } .open-short { color:var(--red); border-color:var(--red); }
         .metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:16px 0; }
         .metric,.panel,.history { background:var(--surface); border:1px solid var(--line); border-radius:6px; }
         .metric { min-width:0; padding:13px 14px; } .label { color:var(--muted); font-size:12px; margin-bottom:6px; } .value { font-size:20px; font-weight:720; overflow-wrap:anywhere; } .unit { color:var(--muted); font-size:11px; font-weight:500; }
@@ -31,7 +31,7 @@
         .position-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
         .cell { min-width:0; min-height:82px; padding:13px 14px; border-right:1px solid var(--line); border-bottom:1px solid var(--line); }
         .cell:nth-child(2n) { border-right:0; } .cell:nth-last-child(-n+2) { border-bottom:0; } .cell-value { font-size:16px; font-weight:700; overflow-wrap:anywhere; }
-        .panel-foot { padding:12px 14px; display:flex; justify-content:space-between; align-items:center; gap:10px; border-top:1px solid var(--line); } .hint { color:var(--muted); font-size:12px; }
+        .panel-foot { padding:12px 14px; display:flex; justify-content:space-between; align-items:center; gap:10px; border-top:1px solid var(--line); } .position-actions { display:flex; gap:8px; } .hint { color:var(--muted); font-size:12px; }
         .positive { color:var(--green); } .negative { color:var(--red); } .price, #current-price { color:var(--blue) !important; }
         .history { margin-top:14px; } input[type=date] { min-height:38px; border:1px solid var(--line); border-radius:6px; padding:0 10px; background:#fff; }
         .table-wrap { overflow:auto; } table { width:100%; border-collapse:collapse; min-width:1040px; } th,td { padding:10px 12px; border-bottom:1px solid var(--line); text-align:right; font-size:12px; white-space:nowrap; } th { color:var(--muted); background:#fafbfc; font-weight:650; } th:first-child,td:first-child,th:nth-child(2),td:nth-child(2) { text-align:left; } tbody tr:last-child td { border-bottom:0; }
@@ -71,12 +71,12 @@
         <article class="panel">
             <div class="panel-head"><h2>BTC &#x591a;&#x55ae;&#x6301;&#x5009;</h2><span class="badge long">LONG</span></div>
             <div id="long-grid" class="position-grid"></div>
-            <div class="panel-foot"><span id="long-hint" class="hint"></span><button id="close-long" class="btn close-long" onclick="closePosition(&quot;long&quot;)"><i data-lucide="circle-x"></i>&#x5e73;&#x591a;&#x55ae;</button></div>
+            <div class="panel-foot"><span id="long-hint" class="hint"></span><div class="position-actions"><button id="open-long" class="btn open-long" onclick="openPosition(&quot;long&quot;)"><i data-lucide="circle-plus"></i>&#x958b;&#x591a;&#x55ae;</button><button id="close-long" class="btn close-long" onclick="closePosition(&quot;long&quot;)"><i data-lucide="circle-x"></i>&#x5e73;&#x591a;&#x55ae;</button></div></div>
         </article>
         <article class="panel">
             <div class="panel-head"><h2>BTC &#x7a7a;&#x55ae;&#x6301;&#x5009;</h2><span class="badge short">SHORT</span></div>
             <div id="short-grid" class="position-grid"></div>
-            <div class="panel-foot"><span id="short-hint" class="hint"></span><button id="close-short" class="btn close-short" onclick="closePosition(&quot;short&quot;)"><i data-lucide="circle-x"></i>&#x5e73;&#x7a7a;&#x55ae;</button></div>
+            <div class="panel-foot"><span id="short-hint" class="hint"></span><div class="position-actions"><button id="open-short" class="btn open-short" onclick="openPosition(&quot;short&quot;)"><i data-lucide="circle-plus"></i>&#x958b;&#x7a7a;&#x55ae;</button><button id="close-short" class="btn close-short" onclick="closePosition(&quot;short&quot;)"><i data-lucide="circle-x"></i>&#x5e73;&#x7a7a;&#x55ae;</button></div></div>
         </article>
     </section>
 
@@ -93,7 +93,7 @@
     </section>
 </main>
 <script>
-const token=document.querySelector("meta[name=control-token]").content;
+let token=document.querySelector("meta[name=control-token]").content;
 const fmt=(v,d=2)=>Number(v||0).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 function pnlClass(v){return Number(v)>0?"positive":Number(v)<0?"negative":"";}
 function alertMessage(v){const e=document.getElementById("alert");e.textContent=v||"";e.classList.toggle("visible",Boolean(v));}
@@ -109,9 +109,7 @@ function renderPosition(side,p){
         cell("&#x672a;&#x5be6;&#x73fe;&#x640d;&#x76ca;",fmt(p.unrealized_pnl)+" USDT",prefix+"-upnl",pnlClass(p.unrealized_pnl))+
         cell("&#x69d3;&#x687f;&#x5831;&#x916c;&#x7387;",fmt(p.leveraged_pnl_pct)+"%",prefix+"-lev",pnlClass(p.leveraged_pnl_pct))+
         cell("&#x7121;&#x69d3;&#x687f;&#x5831;&#x916c;&#x7387;",fmt(p.unleveraged_pnl_pct)+"%",prefix+"-unlev",pnlClass(p.unleveraged_pnl_pct))+
-        cell("&#x9032;&#x5834;&#x624b;&#x7e8c;&#x8cbb;",fmt(p.entry_fee,4)+" USDT",prefix+"-fee")+
-        cell("&#x6700;&#x9ad8;&#x7121;&#x69d3;&#x687f;&#x7372;&#x5229;",p.trailing_tp_armed?fmt(p.peak_unleveraged_pnl_pct)+"%":"--",prefix+"-peak",pnlClass(p.peak_unleveraged_pnl_pct))+
-        cell("&#x79fb;&#x52d5;&#x505c;&#x5229;&#x7dda;",p.trailing_tp_armed?fmt(p.trailing_stop_pct)+"%":"--",prefix+"-trail","positive");
+        cell("&#x9032;&#x5834;&#x624b;&#x7e8c;&#x8cbb;",fmt(p.entry_fee,4)+" USDT",prefix+"-fee");
     document.getElementById("close-"+side).disabled=!has;
     document.getElementById(side+"-hint").textContent=has?(side.toUpperCase()+" / "+fmt(q,6)+" / "+fmt(p.leverage||1,0)+"X"):"目前無持倉";
 }
@@ -131,12 +129,25 @@ function render(s){
     document.getElementById("state").textContent=s.running?"運行中":"已停止";
     document.getElementById("state").className="value "+(s.running?"positive":"");
     document.getElementById("start").disabled=Boolean(s.running);document.getElementById("stop").disabled=!s.running;
-    renderPosition("long",(s.positions||{}).long);renderPosition("short",(s.positions||{}).short);alertMessage(s.error);
+    const positions=s.positions||{};renderPosition("long",positions.long);renderPosition("short",positions.short);const hasPosition=Number((positions.long||{}).quantity||0)>0||Number((positions.short||{}).quantity||0)>0;document.getElementById("open-long").disabled=hasPosition;document.getElementById("open-short").disabled=hasPosition;alertMessage(s.error);
 }
-async function api(url,options={}){options.headers=Object.assign({"X-Control-Token":token},options.headers||{});const r=await fetch(url,options);const p=await r.json();if(!r.ok||p.ok===false)throw new Error(p.error||"Request failed");return p;}
+async function api(url,options={},retry=true){
+    options.headers=Object.assign({},options.headers||{},{"X-Control-Token":token});
+    let r=await fetch(url,options);
+    if(r.status===403&&retry){
+        const html=await fetch("/",{cache:"no-store"}).then(response=>response.text());
+        const documentCopy=new DOMParser().parseFromString(html,"text/html");
+        token=documentCopy.querySelector("meta[name=control-token]").content;
+        return api(url,options,false);
+    }
+    const p=await r.json();
+    if(!r.ok||p.ok===false)throw new Error(p.error||"Request failed");
+    return p;
+}
 async function loadStatus(){try{const r=await fetch("/api/status",{cache:"no-store"});render(await r.json());}catch(e){document.getElementById("dot").classList.remove("online");document.getElementById("connection").textContent="Disconnected";alertMessage(e.message);}}
 async function controlBot(action){try{const p=await api("/api/bot",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action})});render(p.status);}catch(e){alertMessage(e.message);}finally{loadStatus();}}
-async function closePosition(side){if(!confirm("確認手動平"+(side==="long"?"多單":"空單")+"?"))return;try{const p=await api("/api/position/close",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({side})});render(p.status);await loadHistory();}catch(e){alertMessage(e.message);}}
+async function openPosition(side){try{const p=await api("/api/position/open",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({side})});render(p.status);alertMessage(p.message);}catch(e){alertMessage(e.message);}}
+async function closePosition(side){try{const p=await api("/api/position/close",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({side})});render(p.status);await loadHistory();}catch(e){alertMessage(e.message);}}
 async function loadHistory(){try{const d=document.getElementById("history-date").value;const p=await api("/api/history?date="+encodeURIComponent(d),{cache:"no-store"});const b=document.getElementById("history-body");b.innerHTML="";for(const t of p.trades){const tr=document.createElement("tr");const vals=[t.opened_at,t.closed_at,t.side.toUpperCase(),fmt(t.leverage||1,0)+"X",String(t.exit_reason||"legacy").toUpperCase(),fmt(t.quantity,6),fmt(t.entry_price),fmt(t.exit_price),fmt(t.trade_value),fmt(t.gross_pnl),fmt(t.entry_fee,4),fmt(t.exit_fee,4),fmt(t.total_fees,4),fmt(t.net_realized_pnl)];vals.forEach((v,i)=>{const td=document.createElement("td");td.textContent=v;if(i===13)td.className=pnlClass(t.net_realized_pnl);tr.appendChild(td);});b.appendChild(tr);}document.getElementById("history-empty").style.display=p.trades.length?"none":"block";}catch(e){alertMessage(e.message);}}
 async function downloadHistory(){try{const d=document.getElementById("history-date").value;const r=await fetch("/api/history/download?date="+encodeURIComponent(d),{headers:{"X-Control-Token":token}});if(!r.ok)throw new Error("Download failed");const blob=await r.blob(),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="btc-paper-trades-"+(d||"all")+".csv";a.click();URL.revokeObjectURL(a.href);}catch(e){alertMessage(e.message);}}
 document.getElementById("history-date").value=new Date().toISOString().slice(0,10);if(window.lucide)window.lucide.createIcons();loadStatus();loadHistory();setInterval(loadStatus,3000);setInterval(loadHistory,3000);

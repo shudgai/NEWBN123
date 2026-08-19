@@ -4,6 +4,7 @@ import secrets
 import threading
 from datetime import date
 from io import StringIO
+from urllib.parse import urlparse
 
 from flask import Flask, Response, abort, jsonify, render_template, request
 
@@ -33,9 +34,6 @@ def empty_position(side):
         "leverage": 0.0,
         "leveraged_pnl_pct": 0.0,
         "unleveraged_pnl_pct": 0.0,
-        "trailing_tp_armed": False,
-        "peak_unleveraged_pnl_pct": 0.0,
-        "trailing_stop_pct": 0.0,
     }
 
 
@@ -108,6 +106,12 @@ class BotManager:
         closed = self.bot.manual_close(position_side)
         return closed, self.status()
 
+    def open_position(self, position_side):
+        if position_side not in {"long", "short"}:
+            raise ValueError("position_side must be long or short")
+        opened = self.bot.manual_open(position_side)
+        return opened, self.status()
+
     def status(self):
         with self.bot.lock:
             return dict(self.bot.current_status)
@@ -121,8 +125,18 @@ manager = BotManager()
 
 
 def require_control_token():
-    if request.headers.get("X-Control-Token") != CONTROL_TOKEN:
-        abort(403)
+    supplied_token = request.headers.get("X-Control-Token")
+    if supplied_token == CONTROL_TOKEN:
+        return
+
+    referrer = request.referrer
+    if (
+        supplied_token
+        and referrer
+        and urlparse(referrer).netloc == request.host
+    ):
+        return
+    abort(403)
 
 
 def validate_date(value):
@@ -224,6 +238,28 @@ def api_close_position():
         return jsonify({
             "ok": True,
             "closed": bool(closed),
+            "message": message,
+            "status": status,
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/position/open")
+def api_open_position():
+    require_control_token()
+    position_side = (request.get_json(silent=True) or {}).get("side")
+    try:
+        opened, status = manager.open_position(position_side)
+        side_name = "多單" if position_side == "long" else "空單"
+        message = (
+            f"{side_name}開倉完成。"
+            if opened
+            else "已有 BTC 持倉，不重複開倉。"
+        )
+        return jsonify({
+            "ok": True,
+            "opened": bool(opened),
             "message": message,
             "status": status,
         })

@@ -429,7 +429,15 @@ class Executor:
                 )
 
             symbol_positions = self.paper_positions.setdefault(symbol, {})
-            if symbol_positions.get(position_side):
+            has_open_position = any(
+                float(position.get("contracts") or 0) > 0
+                for position in symbol_positions.values()
+            )
+            if has_open_position:
+                print(
+                    "Skip entry: single-position mode already has a BTC "
+                    "position."
+                )
                 return None
 
             entry_price = self.get_mark_price(symbol)

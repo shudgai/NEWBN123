@@ -118,6 +118,31 @@ class TradingBot:
             return 0.0
         return float(position.get("contracts") or position.get("amount") or 0)
 
+    def open_signal_if_flat(self, signal, result, blocked_sides=None):
+        blocked_sides = blocked_sides or set()
+        if signal not in {"long", "short"} or signal in blocked_sides:
+            return None
+
+        positions = self.executor.get_positions(TRADING_SYMBOL)
+        if any(
+            self.position_quantity(positions[side]) > 0
+            for side in ("long", "short")
+        ):
+            return None
+
+        amount = self.executor.calculate_amount(
+            TRADING_SYMBOL,
+            target_percentage=TARGET_PERCENTAGE,
+            reference_price=result["indicators"]["close"],
+        )
+        return self.executor.place_order(
+            TRADING_SYMBOL,
+            "buy" if signal == "long" else "sell",
+            amount,
+            position_side=signal,
+            reference_price=result["indicators"]["close"],
+        )
+
     @staticmethod
     def calculate_hybrid_signal(df):
         if df is None or len(df) < 101:
@@ -269,7 +294,7 @@ class TradingBot:
             self.current_status["current_price"] = self.executor.get_mark_price(
                 TRADING_SYMBOL
             )
-            trailing_closed_sides = set()
+            closed_sides = set()
             for position_side in ("long", "short"):
                 trailing_state = self.executor.update_trailing_take_profit(
                     TRADING_SYMBOL, position_side
@@ -286,9 +311,15 @@ class TradingBot:
                         position_side,
                         exit_reason="trailing_tp",
                     )
-                    trailing_closed_sides.add(position_side)
+                    closed_sides.add(position_side)
 
             if result["candle_time"] == self.last_processed_candle:
+                if closed_sides:
+                    self.open_signal_if_flat(
+                        result["signal"],
+                        result,
+                        blocked_sides=closed_sides,
+                    )
                 self.refresh_status()
                 return
 
@@ -345,47 +376,18 @@ class TradingBot:
                     TRADING_SYMBOL, "long", exit_reason="ma7"
                 )
                 long_quantity = 0.0
+                closed_sides.add("long")
             if close_short:
                 print("MA7 已連續兩根向上，平空單。")
                 self.executor.close_position(
                     TRADING_SYMBOL, "short", exit_reason="ma7"
                 )
                 short_quantity = 0.0
+                closed_sides.add("short")
 
-            if (
-                signal == "long"
-                and long_quantity == 0
-                and "long" not in trailing_closed_sides
-            ):
-                amount = self.executor.calculate_amount(
-                    TRADING_SYMBOL,
-                    target_percentage=TARGET_PERCENTAGE,
-                    reference_price=result["indicators"]["close"],
-                )
-                self.executor.place_order(
-                    TRADING_SYMBOL,
-                    "buy",
-                    amount,
-                    position_side="long",
-                    reference_price=result["indicators"]["close"],
-                )
-            elif (
-                signal == "short"
-                and short_quantity == 0
-                and "short" not in trailing_closed_sides
-            ):
-                amount = self.executor.calculate_amount(
-                    TRADING_SYMBOL,
-                    target_percentage=TARGET_PERCENTAGE,
-                    reference_price=result["indicators"]["close"],
-                )
-                self.executor.place_order(
-                    TRADING_SYMBOL,
-                    "sell",
-                    amount,
-                    position_side="short",
-                    reference_price=result["indicators"]["close"],
-                )
+            self.open_signal_if_flat(
+                signal, result, blocked_sides=closed_sides
+            )
 
             self.last_processed_candle = candle_time
             self.current_status["last_processed_candle"] = candle_time

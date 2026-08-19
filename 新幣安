@@ -77,6 +77,13 @@ ManualSignalStrategy 只會記錄市況、永遠回傳 HOLD,可安全執行不�
     MA_CONFIRM_BARS           MaTurnStrategy 判斷「轉彎」需要連續幾根同方向的K棒才算數,
                             預設 2。數值愈高愈不容易被盤整雜訊誤判成轉折,但訊號會延遲、
                             進出場價位會比抓到轉折當下差一點;設 1 就是完全不用額外確認
+    STATE_FILE                紙交易狀態存檔路徑,預設 新幣安_state.json(跟這個檔案同目錄)。
+                            每次開倉/平倉、以及每輪輪詢後都會存一次檔;啟動時如果這個檔案
+                            存在就會直接讀回餘額、持倉、交易紀錄接著跑,不會每次重啟就歸零。
+                            想要真的從頭開始,把 RESET_STATE 設成 true 啟動一次,或直接砍掉
+                            這個檔案
+    RESET_STATE               true/false,預設 false。true 時忽略既有存檔,強制用
+                            PAPER_STARTING_BALANCE 全新開始(下一次存檔會覆蓋掉舊的)
     POLL_INTERVAL_SEC         主迴圈輪詢間隔秒數,預設 15
     WEB_PORT                  網頁儀表板監聽的 port,預設 8005
                             (另一個舊專案 new bn 佔用 8006,這裡刻意用不同 port 避免衝突)
@@ -106,6 +113,7 @@ ManualSignalStrategy 只會記錄市況、永遠回傳 HOLD,可安全執行不�
 
 import csv
 import io
+import json
 import os
 import sys
 import time
@@ -177,6 +185,8 @@ class Config:
     hedge_mode: bool
     ma_period: int
     ma_confirm_bars: int
+    state_file: str
+    reset_state: bool
     poll_interval_sec: int
     web_port: int
 
@@ -214,6 +224,8 @@ class Config:
             hedge_mode=_env_bool("HEDGE_MODE", False),
             ma_period=int(os.getenv("MA_PERIOD", "7")),
             ma_confirm_bars=int(os.getenv("MA_CONFIRM_BARS", "2")),
+            state_file=os.getenv("STATE_FILE", "新幣安_state.json"),
+            reset_state=_env_bool("RESET_STATE", False),
             poll_interval_sec=int(os.getenv("POLL_INTERVAL_SEC", "15")),
             web_port=int(os.getenv("WEB_PORT", "8005")),
         )
@@ -729,6 +741,55 @@ class PaperAccount:
         p.best_price = 0.0
         return net_pnl
 
+    def to_dict(self) -> dict:
+        """序列化成可存成 JSON 的 dict,給 save_paper_state() 存檔用。"""
+        return {
+            "balance": self.balance,
+            "realized_pnl": self.realized_pnl,
+            "total_fees": self.total_fees,
+            "positions": {
+                f"{symbol}|{slot}": asdict(p) for (symbol, slot), p in self.positions.items()
+            },
+            "trade_history": [asdict(t) for t in self.trade_history],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict, fee_pct: float) -> "PaperAccount":
+        """load_paper_state() 用,從存檔內容還原一個 PaperAccount。"""
+        account = cls(starting_balance=data.get("balance", 0.0), symbols=[], fee_pct=fee_pct)
+        account.balance = data.get("balance", 0.0)
+        account.realized_pnl = data.get("realized_pnl", 0.0)
+        account.total_fees = data.get("total_fees", 0.0)
+        for key, p_data in data.get("positions", {}).items():
+            symbol, slot = key.split("|", 1)
+            account.positions[(symbol, slot)] = _PaperPosition(**p_data)
+        account.trade_history = [TradeRecord(**t) for t in data.get("trade_history", [])]
+        return account
+
+
+def save_paper_state(path: str, account: PaperAccount):
+    """把紙交易帳戶目前的狀態寫成 JSON 檔,重啟時可以還原,不會每次都歸零重來。"""
+    try:
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(account.to_dict(), f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)  # 用 rename 取代寫入,避免寫到一半被中斷弄出半份壞檔
+    except Exception as e:
+        logger.error(f"❌ 儲存紙交易狀態失敗: {e}")
+
+
+def load_paper_state(path: str, fee_pct: float) -> Optional[PaperAccount]:
+    """讀取先前存檔的紙交易狀態;檔案不存在或讀取失敗都回傳 None,讓呼叫端改用全新帳戶。"""
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return PaperAccount.from_dict(data, fee_pct)
+    except Exception as e:
+        logger.error(f"❌ 讀取紙交易狀態存檔失敗,將改用全新帳戶: {e}")
+        return None
+
 
 # ---------------------------------------------------------------------------
 # 機器人主體
@@ -777,12 +838,25 @@ class BinanceFuturesBot:
         self._qty_step: Dict[str, Decimal] = {}
         self._price_tick: Dict[str, Decimal] = {}
 
-        self.paper_account: Optional[PaperAccount] = (
-            PaperAccount(config.paper_starting_balance, config.symbols, config.fee_pct) if config.paper_trading else None
-        )
+        self.paper_account: Optional[PaperAccount] = None
+        loaded_from_state_file = False
+        if config.paper_trading:
+            loaded = None if config.reset_state else load_paper_state(config.state_file, config.fee_pct)
+            if loaded is not None:
+                self.paper_account = loaded
+                loaded_from_state_file = True
+            else:
+                self.paper_account = PaperAccount(config.paper_starting_balance, config.symbols, config.fee_pct)
 
         if config.paper_trading:
-            mode = f"紙交易 (Paper Trading, 共用虛擬本金 {config.paper_starting_balance} USDT, 行情來源: 正式環境公開資料)"
+            if loaded_from_state_file:
+                mode = (
+                    f"紙交易 (Paper Trading, 已從 {config.state_file} 還原狀態,"
+                    f"餘額 {self.paper_account.balance:.4f} USDT、歷史交易 {len(self.paper_account.trade_history)} 筆,"
+                    f"行情來源: 正式環境公開資料)"
+                )
+            else:
+                mode = f"紙交易 (Paper Trading, 全新虛擬本金 {config.paper_starting_balance} USDT, 行情來源: 正式環境公開資料)"
             dry = "不會呼叫任何真實下單 API"
         else:
             mode = "測試網 (Testnet)" if config.testnet else "正式環境 (LIVE)"
@@ -978,6 +1052,7 @@ class BinanceFuturesBot:
                 f"[紙交易][{symbol}][{slot}] 已模擬開倉 {side.value} {qty} @ {market.price} | "
                 f"手續費 -{fee:.4f} USDT | 帳戶餘額: {self.paper_account.balance:.4f} USDT"
             )
+            self._save_state()
             return
 
         order_side = "BUY" if side == Signal.LONG else "SELL"
@@ -1098,6 +1173,7 @@ class BinanceFuturesBot:
             price = market.price if market is not None else position.entry_price
             pnl = self.paper_account.close(symbol, slot, price, reason=reason)
             logger.info(f"[紙交易][{symbol}][{slot}] 已模擬平倉 @ {price} | 本次損益: {pnl:+.4f} USDT | 帳戶餘額: {self.paper_account.balance:.4f} USDT")
+            self._save_state()
             return
 
         if not self.config.dry_run and not self.config.hedge_mode:
@@ -1180,6 +1256,11 @@ class BinanceFuturesBot:
         if self.paper_account is None:
             return []
         return [asdict(t) for t in self.paper_account.trade_history]
+
+    def _save_state(self):
+        """把紙交易狀態存檔,讓下次重啟(不管是我改程式碼重啟、還是你自己重啟)都能接著跑,不會歸零。"""
+        if self.paper_account is not None:
+            save_paper_state(self.config.state_file, self.paper_account)
 
     def manual_close(self, symbol: str, slot: str) -> dict:
         """
@@ -1357,9 +1438,14 @@ class BinanceFuturesBot:
             except Exception as e:
                 logger.error(f"❌ 查詢帳戶餘額失敗: {e}")
 
+            # 每輪都存一次檔,不只是開倉/平倉當下 - 這樣移動停利追蹤到的「最佳價格」
+            # 這種持倉期間持續更新、但不涉及開平倉動作的狀態,也不會因為重啟而遺失。
+            self._save_state()
+
             self._stop_event.wait(self.config.poll_interval_sec)
 
         logger.info("機器人已停止。")
+        self._save_state()
 
 
 # ---------------------------------------------------------------------------

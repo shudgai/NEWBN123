@@ -322,6 +322,10 @@ def main():
     parser.add_argument("--rsi-overbought", type=float, default=70.0)
     # MaTurnStrategy 參數
     parser.add_argument("--ma-period", type=int, default=7)
+    parser.add_argument("--ma-entry-confirm-bars", type=int, default=1,
+                         help="進場轉折需要連續幾根同方向K棒確認,預設 1(不額外確認,盡量減少進場延遲)")
+    parser.add_argument("--ma-exit-confirm-bars", type=int, default=2,
+                         help="出場/止盈轉折需要連續幾根同方向K棒確認,預設 2(比進場嚴格,避免雜訊提早出場)")
     args = parser.parse_args()
 
     mod = _load_xinbian()
@@ -339,7 +343,11 @@ def main():
             rsi_oversold=args.rsi_oversold, rsi_overbought=args.rsi_overbought,
         )
     elif args.strategy == "ma_turn":
-        strategy = mod.MaTurnStrategy(ma_period=args.ma_period)
+        strategy = mod.MaTurnStrategy(
+            ma_period=args.ma_period,
+            entry_confirm_bars=args.ma_entry_confirm_bars,
+            exit_confirm_bars=args.ma_exit_confirm_bars,
+        )
     else:
         strategy = mod.EmaRsiCrossStrategy(
             ema_fast=args.ema_fast, ema_slow=args.ema_slow, rsi_period=args.rsi_period,

@@ -34,9 +34,10 @@ ManualSignalStrategy 只會記錄市況、永遠回傳 HOLD,可安全執行不�
     LEVERAGE                 槓桿倍數,預設 5
     MARGIN_TYPE               ISOLATED(逐倉)或 CROSSED(全倉),預設 ISOLATED
     RISK_PCT_PER_TRADE       每筆交易願意投入的帳戶餘額比例(0~1),預設 0.02
-    MAX_MARGIN_PER_TRADE_USDT 每筆交易投入本金(保證金,尚未乘槓桿)的硬上限,預設 50。
-                            實際投入本金 = min(帳戶餘額 * RISK_PCT_PER_TRADE, 這個上限),
-                            兩個條件同時生效,無論帳戶餘額多大,單筆最多只會投入這個金額
+    MAX_MARGIN_PER_TRADE_USDT 每筆交易投入本金(保證金,尚未乘槓桿)的絕對金額上限,
+                            0 表示不設(純粹依 RISK_PCT_PER_TRADE 算,沒有固定金額天花板,
+                            投入金額會隨帳戶餘額成長/縮水同步增減),預設 0。
+                            設成正數時 = min(帳戶餘額 * RISK_PCT_PER_TRADE, 這個上限)
     STOP_LOSS_PCT             進場後停損的價格百分比距離,0 表示不設,預設 0。
                             真實/測試網模式:掛出以「標記價格」觸發的 STOP_MARKET 單(防插針);
                             紙交易模式:每輪輪詢時查最近幾分鐘「標記價格」的高低區間去比對
@@ -73,6 +74,9 @@ ManualSignalStrategy 只會記錄市況、永遠回傳 HOLD,可安全執行不�
                             帶 positionSide 參數
     MA_PERIOD                 MaTurnStrategy(目前預設策略)的均線期數,預設 7,對應
                             「MA7 谷底轉向上買入、高點轉向下賣出」這個進場條件
+    MA_CONFIRM_BARS           MaTurnStrategy 判斷「轉彎」需要連續幾根同方向的K棒才算數,
+                            預設 2。數值愈高愈不容易被盤整雜訊誤判成轉折,但訊號會延遲、
+                            進出場價位會比抓到轉折當下差一點;設 1 就是完全不用額外確認
     POLL_INTERVAL_SEC         主迴圈輪詢間隔秒數,預設 15
     WEB_PORT                  網頁儀表板監聽的 port,預設 8005
                             (另一個舊專案 new bn 佔用 8006,這裡刻意用不同 port 避免衝突)
@@ -172,6 +176,7 @@ class Config:
     adx_threshold: float
     hedge_mode: bool
     ma_period: int
+    ma_confirm_bars: int
     poll_interval_sec: int
     web_port: int
 
@@ -201,13 +206,14 @@ class Config:
             leverage=int(os.getenv("LEVERAGE", "5")),
             margin_type=os.getenv("MARGIN_TYPE", "ISOLATED").upper(),
             risk_pct_per_trade=float(os.getenv("RISK_PCT_PER_TRADE", "0.02")),
-            max_margin_per_trade=float(os.getenv("MAX_MARGIN_PER_TRADE_USDT", "50")),
+            max_margin_per_trade=float(os.getenv("MAX_MARGIN_PER_TRADE_USDT", "0")),
             stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0")),
             trailing_stop_pct=float(os.getenv("TRAILING_STOP_PCT", "0.0025")),
             fee_pct=float(os.getenv("FEE_PCT", "0.0004")),
             adx_threshold=float(os.getenv("ADX_THRESHOLD", "20.0")),
             hedge_mode=_env_bool("HEDGE_MODE", False),
             ma_period=int(os.getenv("MA_PERIOD", "7")),
+            ma_confirm_bars=int(os.getenv("MA_CONFIRM_BARS", "2")),
             poll_interval_sec=int(os.getenv("POLL_INTERVAL_SEC", "15")),
             web_port=int(os.getenv("WEB_PORT", "8005")),
         )
@@ -540,56 +546,68 @@ class MaTurnStrategy(Strategy):
       - MA 從上升轉為下降(高點反轉,倒 V 型頂)-> 做空
       - 持多單時遇到高點反轉(倒V頂)-> 平倉;持空單時遇到谷底反轉(V型底)-> 平倉
 
-    判斷一律使用「已收盤」的K棒:比較最後三根已收盤K棒的 MA 值(-2/-3/-4,-1 是
-    尚未收盤、仍在變動的最新K棒,不採用),看這三個點的斜率有沒有由正轉負或由負轉正,
+    「轉彎」需要連續 confirm_bars 根(預設 2 根)都確認同一個新方向才算數,不是
+    一根就觸發 - 盤整時 MA 常常單根小幅上下擺動,只看一根很容易把雜訊誤判成轉折;
+    要求連續多根同向,才比較接近「真的轉彎」而不是原地盤整的擺動。
+
+    判斷一律使用「已收盤」的K棒(-1 是尚未收盤、仍在變動的最新K棒,不採用),
     避免用還沒收盤的K棒導致訊號在收盤前反覆出現又消失。
     """
 
-    def __init__(self, ma_period: int = 7):
+    def __init__(self, ma_period: int = 7, confirm_bars: int = 2):
         self.ma_period = ma_period
+        self.confirm_bars = max(1, confirm_bars)
 
     def on_tick(self, market: MarketSnapshot, position: PositionInfo) -> Signal:
         closes = [float(k[4]) for k in market.klines]
 
-        min_len = self.ma_period + 4
+        min_len = self.ma_period + self.confirm_bars + 4
         if len(closes) < min_len:
             logger.info(f"[策略] K 線資料不足({len(closes)}/{min_len}),暫時觀望")
             return Signal.HOLD
 
         ma = _sma(closes, self.ma_period)
 
-        # -1 是尚未收盤的最新K棒,-2/-3/-4 是最後三根已收盤K棒(由舊到新: -4, -3, -2)
-        two_ago, one_ago, last = ma[-4], ma[-3], ma[-2]
-        # "之前的走勢"用 <=/>= 讓「持平」算進原本的趨勢裡,不要求嚴格遞增/遞減 -
-        # 否則遇到轉折點剛好卡在一個持平的點(例如 127.71 -> 127.71 -> 127.43),
-        # 嚴格不等式會把這個轉折判斷漏掉,永遠等不到「嚴格上升接嚴格下降」這麼乾淨的組合。
-        # "現在的走勢"則要求嚴格變動,確保真的有動作才算轉向,不是原地踏步。
-        was_falling = one_ago <= two_ago
-        was_rising = one_ago >= two_ago
-        now_rising = last > one_ago
-        now_falling = last < one_ago
+        # points 是最後 confirm_bars+2 個「已收盤」的 MA 值(由舊到新),
+        # points[-1] 對應 ma[-2](最後一根已收盤K棒)。
+        # points[0] -> points[1] 是「轉折前」的參考步,points[1:] 之間的
+        # confirm_bars 個連續步伐,要全部同方向,才算「確認轉彎」。
+        points = ma[-(self.confirm_bars + 3):-1]
+        ref, before_turn = points[0], points[1]
+        confirm_points = points[1:]
 
-        trough_turn_up = was_falling and now_rising
-        peak_turn_down = was_rising and now_falling
+        # "之前的走勢"用 <=/>= 讓「持平」算進原本的趨勢裡,不要求嚴格遞增/遞減 -
+        # 否則遇到轉折點剛好卡在一個持平的點,嚴格不等式會把這個轉折判斷漏掉。
+        was_falling = before_turn <= ref
+        was_rising = before_turn >= ref
+        now_confirmed_rising = all(
+            confirm_points[i] > confirm_points[i - 1] for i in range(1, len(confirm_points))
+        )
+        now_confirmed_falling = all(
+            confirm_points[i] < confirm_points[i - 1] for i in range(1, len(confirm_points))
+        )
+
+        trough_turn_up = was_falling and now_confirmed_rising
+        peak_turn_down = was_rising and now_confirmed_falling
 
         logger.info(
-            f"[策略] {market.symbol} 現價 {market.price} | MA{self.ma_period}: "
-            f"{two_ago:.2f} -> {one_ago:.2f} -> {last:.2f} | 持倉 {position.side} 數量 {position.quantity}"
+            f"[策略] {market.symbol} 現價 {market.price} | MA{self.ma_period} 最近{len(points)}點: "
+            f"{' -> '.join(f'{p:.2f}' for p in points)} | 持倉 {position.side} 數量 {position.quantity}"
         )
 
         if not position.is_open:
             if trough_turn_up:
-                logger.info(f"🟢 MA{self.ma_period} 谷底轉向上,觸發做多訊號")
+                logger.info(f"🟢 MA{self.ma_period} 谷底轉向上(已連續{self.confirm_bars}根確認),觸發做多訊號")
                 return Signal.LONG
             if peak_turn_down:
-                logger.info(f"🔴 MA{self.ma_period} 高點轉向下,觸發做空訊號")
+                logger.info(f"🔴 MA{self.ma_period} 高點轉向下(已連續{self.confirm_bars}根確認),觸發做空訊號")
                 return Signal.SHORT
         else:
             if position.side == "LONG" and peak_turn_down:
-                logger.info(f"📉 持多單遇 MA{self.ma_period} 高點轉向下,觸發平倉訊號")
+                logger.info(f"📉 持多單遇 MA{self.ma_period} 高點轉向下(已連續{self.confirm_bars}根確認),觸發平倉訊號")
                 return Signal.CLOSE
             if position.side == "SHORT" and trough_turn_up:
-                logger.info(f"📈 持空單遇 MA{self.ma_period} 谷底轉向上,觸發平倉訊號")
+                logger.info(f"📈 持空單遇 MA{self.ma_period} 谷底轉向上(已連續{self.confirm_bars}根確認),觸發平倉訊號")
                 return Signal.CLOSE
 
         return Signal.HOLD
@@ -913,19 +931,22 @@ class BinanceFuturesBot:
 
     def calc_quantity(self, symbol: str, price: float) -> float:
         """
-        投入本金 = min(帳戶餘額 * 風險比例, MAX_MARGIN_PER_TRADE_USDT) - 兩個條件都要滿足,
-        確保帳戶餘額再怎麼大,單筆交易投入的本金也不會超過這個硬上限。
+        投入本金 = 帳戶餘額 * 風險比例,單純依帳戶餘額計算,金額會隨餘額成長/縮水同步
+        增減。MAX_MARGIN_PER_TRADE_USDT > 0 時才會額外套用一個絕對金額上限(min);
+        設成 0 就是關閉這個上限,完全交給風險比例決定,不再有固定金額天花板。
         下單數量 = 投入本金 * 槓桿 / 現價,再對齊交易所精度。
         """
         balance = self.get_balance_usdt()
-        margin = min(balance * self.config.risk_pct_per_trade, self.config.max_margin_per_trade)
+        margin = balance * self.config.risk_pct_per_trade
+        if self.config.max_margin_per_trade > 0:
+            margin = min(margin, self.config.max_margin_per_trade)
         notional = margin * self.config.leverage
         raw_qty = notional / price
         qty = self._round_qty(symbol, raw_qty)
         if qty <= 0:
             logger.warning(
                 f"⚠️ 計算出的下單數量為 0(餘額 {balance} USDT、風險比例 {self.config.risk_pct_per_trade}、"
-                f"投入本金上限 {self.config.max_margin_per_trade} USDT、槓桿 {self.config.leverage}x),"
+                f"投入本金上限 {self.config.max_margin_per_trade or '未設定'} USDT、槓桿 {self.config.leverage}x),"
                 f"請確認帳戶餘額或風險參數設定。"
             )
         return qty
@@ -1685,7 +1706,7 @@ def main():
     # 目前預設使用 MA7 轉折策略(谷底轉向上買入、高點轉向下賣出);
     # 換成 ManualSignalStrategy() 可回到只記錄市況、永遠 HOLD、不會下單的安全觀察模式,
     # 換成 EmaRsiCrossStrategy(adx_threshold=config.adx_threshold) 可切回均線交叉策略。
-    strategy = MaTurnStrategy(ma_period=config.ma_period)
+    strategy = MaTurnStrategy(ma_period=config.ma_period, confirm_bars=config.ma_confirm_bars)
     bot = BinanceFuturesBot(config, strategy)
     bot.setup()
 

@@ -294,15 +294,45 @@ class TradingBot:
         position_side = pending.get("side")
         target_price = float(pending.get("target_price") or 0)
         invalidation_price = float(pending.get("invalidation_price") or 0)
+        pullback_pct = float(pending.get("pullback_pct") or 0)
+        profit_target = float(pending.get("profit_target") or 0)
         if position_side == "long":
+            favorable_extreme = max(
+                float(pending.get("favorable_extreme") or 0), current_price
+            )
+            raw_target = favorable_extreme * (1 - pullback_pct / 100)
+            profit_space_limit = profit_target / (
+                1 + MIN_PROFIT_SPACE_PCT / 100
+            )
+            target_price = max(
+                target_price, min(raw_target, profit_space_limit)
+            )
             invalidated = current_price <= invalidation_price
             reached_target = current_price <= target_price
         elif position_side == "short":
+            stored_extreme = float(
+                pending.get("favorable_extreme") or current_price
+            )
+            favorable_extreme = min(stored_extreme, current_price)
+            raw_target = favorable_extreme * (1 + pullback_pct / 100)
+            profit_space_limit = profit_target / (
+                1 - MIN_PROFIT_SPACE_PCT / 100
+            )
+            target_price = min(
+                target_price, max(raw_target, profit_space_limit)
+            )
             invalidated = current_price >= invalidation_price
             reached_target = current_price >= target_price
         else:
             self.clear_pending_entry("方向格式錯誤")
             return None
+
+        pending["favorable_extreme"] = favorable_extreme
+        pending["target_price"] = target_price
+        pending["profit_space_pct"] = self.profit_space_pct(
+            position_side, target_price, profit_target
+        )
+        self.current_status["pending_entry"] = pending
 
         if invalidated:
             self.clear_pending_entry(
@@ -313,7 +343,6 @@ class TradingBot:
         if not reached_target:
             return None
 
-        profit_target = float(pending.get("profit_target") or 0)
         profit_space = self.profit_space_pct(
             position_side, current_price, profit_target
         )
@@ -409,6 +438,7 @@ class TradingBot:
             "profit_target": profit_target,
             "profit_space_pct": profit_space,
             "pullback_pct": pullback_pct,
+            "favorable_extreme": signal_close,
         }
         self.current_status["pending_entry"] = self.pending_entry
         print(

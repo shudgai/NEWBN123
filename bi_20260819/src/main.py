@@ -277,11 +277,7 @@ class TradingBot:
             self.current_status["retained_entry_signal"] = None
             return "hold"
 
-        turn_strength_ok = (
-            result["indicators"]["ma7_turn_atr_ratio"]
-            >= MIN_ENTRY_MA7_TURN_ATR_RATIO
-        )
-        if raw_signal in {"long", "short"} and turn_strength_ok:
+        if raw_signal in {"long", "short"}:
             if (
                 self.pending_entry
                 and self.pending_entry.get("side") != raw_signal

@@ -63,6 +63,8 @@
         <div class="metric"><div class="label">MA25</div><div id="ma25" class="value">--</div></div>
         <div class="metric"><div class="label">MA99</div><div id="ma99" class="value">--</div></div>
         <div class="metric"><div class="label">ATR14</div><div id="atr14" class="value">--</div></div>
+        <div class="metric"><div class="label">MA7 &#x7d2f;&#x7a4d;&#x53cd;&#x8f49; / ATR</div><div id="exit-ma7-ratio" class="value">--</div></div>
+        <div class="metric"><div class="label">&#x5f85;&#x9032;&#x5834;</div><div id="pending-entry" class="value">--</div></div>
         <div class="metric"><div class="label">Entry Guard</div><div id="spike-guard" class="value">NORMAL</div></div>
         <div class="metric"><div class="label">&#x6a5f;&#x5668;&#x4eba;&#x72c0;&#x614b;</div><div id="state" class="value">--</div></div>
     </section>
@@ -128,11 +130,16 @@ function render(s){
     document.getElementById("ma25").textContent=indicators.ma25==null?"--":fmt(indicators.ma25);
     document.getElementById("ma99").textContent=indicators.ma99==null?"--":fmt(indicators.ma99);
     document.getElementById("atr14").textContent=indicators.atr14==null?"--":fmt(indicators.atr14);
+    const positions=s.positions||{},exitRatios=s.ma7_exit_ratios||{};
+    const activeSide=Number((positions.long||{}).quantity||0)>0?"long":Number((positions.short||{}).quantity||0)>0?"short":null;
+    document.getElementById("exit-ma7-ratio").textContent=activeSide?fmt(exitRatios[activeSide]||0,3)+" / "+fmt(s.exit_ma7_turn_atr_ratio||0.25,3):"--";
+    const pending=s.pending_entry||null;
+    document.getElementById("pending-entry").textContent=pending?String(pending.side||"").toUpperCase()+" @ "+fmt(pending.target_price)+" / "+fmt(pending.profit_space_pct,3)+"%":"--";
     const guard=document.getElementById("spike-guard");guard.textContent=s.spike_protection?"SPIKE":s.low_volatility_protection?"LOW VOL":"NORMAL";guard.className="value "+(s.spike_protection||s.low_volatility_protection?"negative":"positive");
     document.getElementById("state").textContent=s.running?"運行中":"已停止";
     document.getElementById("state").className="value "+(s.running?"positive":"");
     document.getElementById("start").disabled=Boolean(s.running);document.getElementById("stop").disabled=!s.running;
-    const positions=s.positions||{};renderPosition("long",positions.long);renderPosition("short",positions.short);const hasPosition=Number((positions.long||{}).quantity||0)>0||Number((positions.short||{}).quantity||0)>0;document.getElementById("open-long").disabled=hasPosition;document.getElementById("open-short").disabled=hasPosition;alertMessage(s.error);
+    renderPosition("long",positions.long);renderPosition("short",positions.short);const hasPosition=Number((positions.long||{}).quantity||0)>0||Number((positions.short||{}).quantity||0)>0;document.getElementById("open-long").disabled=hasPosition;document.getElementById("open-short").disabled=hasPosition;alertMessage(s.error);
 }
 async function api(url,options={},retry=true){
     options.headers=Object.assign({},options.headers||{},{"X-Control-Token":token});

@@ -28,6 +28,14 @@ MIN_EXIT_MA7_TURN_ATR_RATIO = float(
     os.getenv("MIN_EXIT_MA7_TURN_ATR_RATIO", "0.25")
 )
 STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.50"))
+ENTRY_PULLBACK_ATR_RATIO = float(
+    os.getenv("ENTRY_PULLBACK_ATR_RATIO", "0.75")
+)
+MIN_ENTRY_PULLBACK_PCT = float(os.getenv("MIN_ENTRY_PULLBACK_PCT", "0.08"))
+MAX_ENTRY_PULLBACK_PCT = float(os.getenv("MAX_ENTRY_PULLBACK_PCT", "0.15"))
+PENDING_ENTRY_MINUTES = int(os.getenv("PENDING_ENTRY_MINUTES", "3"))
+PROFIT_LOOKBACK_CANDLES = int(os.getenv("PROFIT_LOOKBACK_CANDLES", "30"))
+MIN_PROFIT_SPACE_PCT = float(os.getenv("MIN_PROFIT_SPACE_PCT", "0.60"))
 MAX_ENTRY_PRICE_DEVIATION_PCT = float(
     os.getenv("MAX_ENTRY_PRICE_DEVIATION_PCT", "0.5")
 )
@@ -51,6 +59,16 @@ if (
     raise RuntimeError("Minimum volatility thresholds must be positive.")
 if not 0 < STOP_LOSS_PCT < 100:
     raise RuntimeError("STOP_LOSS_PCT must be greater than 0 and less than 100.")
+if ENTRY_PULLBACK_ATR_RATIO <= 0:
+    raise RuntimeError("ENTRY_PULLBACK_ATR_RATIO must be greater than 0.")
+if not 0 < MIN_ENTRY_PULLBACK_PCT <= MAX_ENTRY_PULLBACK_PCT < 100:
+    raise RuntimeError("Entry pullback percentage limits are invalid.")
+if PENDING_ENTRY_MINUTES < 1:
+    raise RuntimeError("PENDING_ENTRY_MINUTES must be at least 1.")
+if PROFIT_LOOKBACK_CANDLES < 2:
+    raise RuntimeError("PROFIT_LOOKBACK_CANDLES must be at least 2.")
+if not 0 < MIN_PROFIT_SPACE_PCT < 100:
+    raise RuntimeError("MIN_PROFIT_SPACE_PCT must be between 0 and 100.")
 if MAX_ENTRY_PRICE_DEVIATION_PCT <= 0:
     raise RuntimeError("MAX_ENTRY_PRICE_DEVIATION_PCT must be greater than 0.")
 if not 0 <= PAPER_FEE_RATE < 1:

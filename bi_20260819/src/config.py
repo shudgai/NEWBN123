@@ -22,7 +22,7 @@ MAX_CANDLE_RANGE_ATR = float(os.getenv("MAX_CANDLE_RANGE_ATR", "3.0"))
 MAX_CLOSE_MOVE_ATR = float(os.getenv("MAX_CLOSE_MOVE_ATR", "3.0"))
 MIN_ENTRY_ATR_PCT = float(os.getenv("MIN_ENTRY_ATR_PCT", "0.05"))
 MIN_ENTRY_MA7_TURN_ATR_RATIO = float(
-    os.getenv("MIN_ENTRY_MA7_TURN_ATR_RATIO", "0.15")
+    os.getenv("MIN_ENTRY_MA7_TURN_ATR_RATIO", "0.25")
 )
 MIN_ENTRY_RVOL = float(os.getenv("MIN_ENTRY_RVOL", "0.50"))
 RVOL_LOOKBACK = int(os.getenv("RVOL_LOOKBACK", "20"))
@@ -60,6 +60,15 @@ MAX_ENTRY_PRICE_DEVIATION_PCT = float(
 )
 SIGNAL_TIMEFRAME = os.getenv("SIGNAL_TIMEFRAME", "1m").strip()
 LOOP_INTERVAL_SECONDS = int(os.getenv("LOOP_INTERVAL_SECONDS", "3"))
+INTRABAR_COLOR_CHANGE_PCT = float(
+    os.getenv("INTRABAR_COLOR_CHANGE_PCT", "0.03")
+)
+INTRABAR_COLOR_CONFIRM_SECONDS = int(
+    os.getenv("INTRABAR_COLOR_CONFIRM_SECONDS", "3")
+)
+MIN_INTRABAR_MA7_TURN_ATR_RATIO = float(
+    os.getenv("MIN_INTRABAR_MA7_TURN_ATR_RATIO", "0.25")
+)
 TRADING_SYMBOL = "BTC/USDT:USDT"
 STATUS_FILE = PROJECT_ROOT / "status.json"
 PAPER_STATE_FILE = PROJECT_ROOT / "paper_state.json"
@@ -120,3 +129,11 @@ if LOOP_INTERVAL_SECONDS < 1:
     raise RuntimeError("LOOP_INTERVAL_SECONDS must be at least 1.")
 if PAPER_LEVERAGE <= 0:
     raise RuntimeError("PAPER_LEVERAGE must be greater than 0.")
+if not 0 < INTRABAR_COLOR_CHANGE_PCT < 100:
+    raise RuntimeError("INTRABAR_COLOR_CHANGE_PCT must be between 0 and 100.")
+if INTRABAR_COLOR_CONFIRM_SECONDS < 1:
+    raise RuntimeError("INTRABAR_COLOR_CONFIRM_SECONDS must be at least 1.")
+if MIN_INTRABAR_MA7_TURN_ATR_RATIO <= 0:
+    raise RuntimeError(
+        "MIN_INTRABAR_MA7_TURN_ATR_RATIO must be greater than 0."
+    )

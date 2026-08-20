@@ -266,7 +266,7 @@ def api_open_position():
         message = (
             f"{side_name}開倉完成。"
             if opened
-            else "已有 BTC 持倉，不重複開倉。"
+            else f"已有 BTC {side_name}，不重複開倉。"
         )
         return jsonify({
             "ok": True,

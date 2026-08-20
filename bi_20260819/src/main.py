@@ -12,6 +12,9 @@ from src.config import (
     ENTRY_PULLBACK_ATR_RATIO,
     ENTRY_SIGNAL_HOLD_CANDLES,
     LOOP_INTERVAL_SECONDS,
+    INTRABAR_COLOR_CHANGE_PCT,
+    INTRABAR_COLOR_CONFIRM_SECONDS,
+    MIN_INTRABAR_MA7_TURN_ATR_RATIO,
     MA7_EXIT_CONFIRM_CANDLES,
     MAX_CANDLE_RANGE_ATR,
     MAX_CLOSE_MOVE_ATR,
@@ -92,6 +95,10 @@ class TradingBot:
         self.retained_entry_signal = (
             stored_retained if isinstance(stored_retained, dict) else None
         )
+        stored_intrabar = saved_status.get("intrabar_color_change")
+        self.intrabar_color_change = (
+            stored_intrabar if isinstance(stored_intrabar, dict) else {}
+        )
         self.current_status = {
             "balance": self.executor.get_balance(),
             "max_position_value": self.executor.get_balance(),
@@ -121,6 +128,14 @@ class TradingBot:
             ],
             "pending_entry_minutes": PENDING_ENTRY_MINUTES,
             "entry_signal_hold_candles": ENTRY_SIGNAL_HOLD_CANDLES,
+            "intrabar_color_change_pct": INTRABAR_COLOR_CHANGE_PCT,
+            "intrabar_color_confirm_seconds": (
+                INTRABAR_COLOR_CONFIRM_SECONDS
+            ),
+            "min_intrabar_ma7_turn_atr_ratio": (
+                MIN_INTRABAR_MA7_TURN_ATR_RATIO
+            ),
+            "intrabar_color_change": dict(self.intrabar_color_change),
             "pending_entry": self.pending_entry,
             "retained_entry_signal": self.retained_entry_signal,
             "ma7_exit_extremes": dict(self.ma7_exit_extremes),
@@ -179,6 +194,9 @@ class TradingBot:
             self.current_status["pending_entry"] = self.pending_entry
             self.current_status["retained_entry_signal"] = (
                 self.retained_entry_signal
+            )
+            self.current_status["intrabar_color_change"] = dict(
+                self.intrabar_color_change
             )
             save_status(self.current_status)
             return dict(self.current_status)
@@ -521,11 +539,12 @@ class TradingBot:
             return None
 
         positions = positions or self.executor.get_positions(TRADING_SYMBOL)
-        if any(
-            self.position_quantity(positions[side]) > 0
-            for side in ("long", "short")
+        pending_side = pending.get("side")
+        if (
+            pending_side in {"long", "short"}
+            and self.position_quantity(positions[pending_side]) > 0
         ):
-            self.clear_pending_entry("已有持倉")
+            self.clear_pending_entry(f"已有 {pending_side.upper()} 持倉")
             return None
 
         try:
@@ -609,11 +628,8 @@ class TradingBot:
             return None
 
         positions = self.executor.get_positions(TRADING_SYMBOL)
-        if any(
-            self.position_quantity(positions[side]) > 0
-            for side in ("long", "short")
-        ):
-            self.clear_pending_entry("已有持倉")
+        if self.position_quantity(positions[signal]) > 0:
+            self.clear_pending_entry(f"已有 {signal.upper()} 持倉")
             return None
 
         if self.pending_entry:
@@ -663,6 +679,157 @@ class TradingBot:
             f"valid={PENDING_ENTRY_MINUTES}m"
         )
         return self.pending_entry
+
+    def update_intrabar_color_change(self, live_candle, current_price, now=None):
+        now = now or datetime.now(timezone.utc)
+        open_price = float(live_candle["open"])
+        high_price = float(live_candle["high"])
+        low_price = float(live_candle["low"])
+        if open_price <= 0 or current_price <= 0:
+            return None
+        timestamp = live_candle["timestamp"]
+        candle_time = (
+            timestamp.isoformat()
+            if hasattr(timestamp, "isoformat")
+            else str(timestamp)
+        )
+        upper_trigger = open_price * (1 + INTRABAR_COLOR_CHANGE_PCT / 100)
+        lower_trigger = open_price * (1 - INTRABAR_COLOR_CHANGE_PCT / 100)
+        state = self.intrabar_color_change
+        if state.get("candle_time") != candle_time:
+            state = {
+                "candle_time": candle_time,
+                "open": open_price,
+                "seen_green": high_price >= upper_trigger,
+                "seen_red": low_price <= lower_trigger,
+                "candidate": None,
+                "candidate_started_at": None,
+                "triggered": False,
+            }
+        state["seen_green"] = bool(state.get("seen_green")) or (
+            high_price >= upper_trigger
+        )
+        state["seen_red"] = bool(state.get("seen_red")) or (
+            low_price <= lower_trigger
+        )
+        state["current_move_pct"] = (current_price - open_price) / open_price * 100
+        if state.get("triggered"):
+            self.intrabar_color_change = state
+            return None
+        candidate = None
+        if state["seen_green"] and current_price <= lower_trigger:
+            candidate = "short"
+        elif state["seen_red"] and current_price >= upper_trigger:
+            candidate = "long"
+        if candidate is None:
+            state["candidate"] = None
+            state["candidate_started_at"] = None
+            state["color_change_confirmed_side"] = None
+            state["waiting_for_ma7_pre_turn"] = False
+            self.intrabar_color_change = state
+            return None
+        if state.get("candidate") != candidate:
+            state["candidate"] = candidate
+            state["candidate_started_at"] = now.isoformat()
+            self.intrabar_color_change = state
+            return None
+        try:
+            started_at = datetime.fromisoformat(
+                str(state["candidate_started_at"]).replace("Z", "+00:00")
+            )
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+        except (KeyError, TypeError, ValueError):
+            state["candidate_started_at"] = now.isoformat()
+            self.intrabar_color_change = state
+            return None
+        confirm_seconds = max((now - started_at).total_seconds(), 0.0)
+        state["confirm_seconds"] = confirm_seconds
+        if confirm_seconds < INTRABAR_COLOR_CONFIRM_SECONDS:
+            self.intrabar_color_change = state
+            return None
+        state["color_change_confirmed_side"] = candidate
+        self.intrabar_color_change = state
+        return candidate
+
+    @staticmethod
+    def intrabar_ma7_pre_turn(signal, result, df, live_price):
+        closed = df.iloc[:-1]
+        if len(closed) < 7:
+            return False, None, 0.0
+        projected_ma7 = (
+            float(closed["close"].iloc[-6:].sum()) + float(live_price)
+        ) / 7
+        current_ma7 = float(result["indicators"].get("ma7") or 0)
+        atr14 = float(result["indicators"].get("atr14") or 0)
+        turn_atr_ratio = (
+            abs(projected_ma7 - current_ma7) / atr14
+            if atr14 > 0
+            else 0.0
+        )
+        if signal == "short":
+            direction_ok = (
+                result["ma7_rising"] and projected_ma7 < current_ma7
+            )
+        elif signal == "long":
+            direction_ok = (
+                result["ma7_falling"] and projected_ma7 > current_ma7
+            )
+        else:
+            direction_ok = False
+        eligible = (
+            direction_ok
+            and turn_atr_ratio >= MIN_INTRABAR_MA7_TURN_ATR_RATIO
+        )
+        return eligible, projected_ma7, turn_atr_ratio
+
+    def execute_intrabar_color_change(
+        self, signal, result, live_candle, current_price
+    ):
+        close_side = "short" if signal == "long" else "long"
+        positions = self.executor.get_positions(TRADING_SYMBOL)
+        position = positions.get(close_side)
+        entry_mode = self.position_entry_modes.get(close_side)
+        if entry_mode not in {"manual", "strategy"}:
+            entry_mode = "strategy"
+        if self.position_quantity(position) > 0 and entry_mode == "strategy":
+            color_change = "紅轉綠" if signal == "long" else "綠轉紅"
+            print(f"同根 K {color_change}確認，立即平 {close_side.upper()}。")
+            trade = self.executor.close_position(
+                TRADING_SYMBOL,
+                close_side,
+                exit_reason="intrabar_color_change",
+            )
+            if trade is not None:
+                self.reset_ma7_exit_tracking(close_side)
+        atr14 = float(result["indicators"].get("atr14") or 0)
+        live_range = float(live_candle["high"]) - float(live_candle["low"])
+        live_range_atr = live_range / atr14 if atr14 > 0 else float("inf")
+        if live_range_atr > MAX_CANDLE_RANGE_ATR:
+            print(
+                "同根 K 變色成立，但振幅過大，僅平倉、不建立新倉："
+                f"range/ATR={live_range_atr:.2f}"
+            )
+            return None
+        entry_result = dict(result)
+        entry_result["candle_time"] = self.intrabar_color_change["candle_time"]
+        entry_result["signal_low"] = float(live_candle["low"])
+        entry_result["signal_high"] = float(live_candle["high"])
+        indicators = dict(result["indicators"])
+        indicators["close"] = float(live_candle["close"])
+        indicators["volume"] = float(live_candle["volume"])
+        volume_median = float(indicators.get("volume_median") or 0)
+        indicators["rvol"] = (
+            indicators["volume"] / volume_median
+            if volume_median > 0
+            else 0.0
+        )
+        entry_result["indicators"] = indicators
+        self.current_status["signal"] = signal
+        queued = self.queue_entry_signal(signal, entry_result)
+        if queued is not None:
+            return self.process_pending_entry(current_price)
+        return None
 
     @staticmethod
     def calculate_hybrid_signal(df):
@@ -840,6 +1007,53 @@ class TradingBot:
                 "entry_volume_ok"
             ]
             self.current_status["current_price"] = current_price
+            live_candle = df.iloc[-1]
+            live_candle_price = float(live_candle["close"])
+            intrabar_signal = self.update_intrabar_color_change(
+                live_candle, live_candle_price
+            )
+            self.current_status["intrabar_color_change"] = dict(
+                self.intrabar_color_change
+            )
+            if intrabar_signal in {"long", "short"}:
+                (
+                    ma7_pre_turn_ok,
+                    projected_ma7,
+                    ma7_turn_atr_ratio,
+                ) = self.intrabar_ma7_pre_turn(
+                    intrabar_signal, result, df, live_candle_price
+                )
+                self.intrabar_color_change["projected_ma7"] = projected_ma7
+                self.intrabar_color_change["ma7_turn_atr_ratio"] = (
+                    ma7_turn_atr_ratio
+                )
+                self.intrabar_color_change["min_ma7_turn_atr_ratio"] = (
+                    MIN_INTRABAR_MA7_TURN_ATR_RATIO
+                )
+                self.intrabar_color_change["ma7_pre_turn_ok"] = (
+                    ma7_pre_turn_ok
+                )
+                self.intrabar_color_change["waiting_for_ma7_pre_turn"] = (
+                    not ma7_pre_turn_ok
+                )
+                if ma7_pre_turn_ok:
+                    self.intrabar_color_change["triggered"] = True
+                    self.intrabar_color_change["triggered_side"] = (
+                        intrabar_signal
+                    )
+                    self.intrabar_color_change["triggered_at"] = (
+                        datetime.now(timezone.utc).isoformat()
+                    )
+                    self.intrabar_color_change["candidate"] = None
+                    self.intrabar_color_change[
+                        "candidate_started_at"
+                    ] = None
+                    self.execute_intrabar_color_change(
+                        intrabar_signal, result, live_candle, current_price
+                    )
+                self.current_status["intrabar_color_change"] = dict(
+                    self.intrabar_color_change
+                )
             if result["candle_time"] == self.last_processed_candle:
                 self.refresh_status()
                 return
@@ -1002,10 +1216,7 @@ class TradingBot:
             raise ValueError("position_side must be long or short")
         with self.lock:
             positions = self.executor.get_positions(TRADING_SYMBOL)
-            if any(
-                self.position_quantity(positions[side]) > 0
-                for side in ("long", "short")
-            ):
+            if self.position_quantity(positions[position_side]) > 0:
                 self.refresh_status()
                 return False
 

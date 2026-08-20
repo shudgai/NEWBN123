@@ -387,14 +387,13 @@ class Executor:
                 )
 
             symbol_positions = self.paper_positions.setdefault(symbol, {})
-            has_open_position = any(
-                float(position.get("contracts") or 0) > 0
-                for position in symbol_positions.values()
+            existing_position = symbol_positions.get(position_side)
+            has_same_side_position = (
+                float((existing_position or {}).get("contracts") or 0) > 0
             )
-            if has_open_position:
+            if has_same_side_position:
                 print(
-                    "Skip entry: single-position mode already has a BTC "
-                    "position."
+                    f"Skip entry: {position_side.upper()} position already exists."
                 )
                 return None
 

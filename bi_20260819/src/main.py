@@ -62,6 +62,11 @@ class TradingBot:
             "long": stored_extremes.get("long"),
             "short": stored_extremes.get("short"),
         }
+        stored_entry_modes = saved_status.get("position_entry_modes") or {}
+        self.position_entry_modes = {
+            "long": stored_entry_modes.get("long"),
+            "short": stored_entry_modes.get("short"),
+        }
         stored_pending = saved_status.get("pending_entry")
         self.pending_entry = (
             stored_pending if isinstance(stored_pending, dict) else None
@@ -87,6 +92,7 @@ class TradingBot:
             "min_profit_space_pct": MIN_PROFIT_SPACE_PCT,
             "pending_entry": self.pending_entry,
             "ma7_exit_extremes": dict(self.ma7_exit_extremes),
+            "position_entry_modes": dict(self.position_entry_modes),
             "ma7_exit_ratios": {"long": 0.0, "short": 0.0},
             "positions": self.executor.position_summaries(TRADING_SYMBOL),
             "indicators": {
@@ -120,6 +126,9 @@ class TradingBot:
             )
             self.current_status["ma7_exit_extremes"] = dict(
                 self.ma7_exit_extremes
+            )
+            self.current_status["position_entry_modes"] = dict(
+                self.position_entry_modes
             )
             self.current_status["pending_entry"] = self.pending_entry
             save_status(self.current_status)
@@ -206,6 +215,15 @@ class TradingBot:
             position = positions.get(position_side)
             if self.position_quantity(position) <= 0:
                 self.ma7_exit_extremes[position_side] = None
+                self.position_entry_modes[position_side] = None
+                continue
+
+            entry_mode = self.position_entry_modes.get(position_side)
+            if entry_mode not in {"manual", "strategy"}:
+                entry_mode = "strategy"
+                self.position_entry_modes[position_side] = entry_mode
+            if entry_mode == "manual":
+                self.ma7_exit_extremes[position_side] = None
                 continue
 
             extreme = self.ma7_exit_extremes.get(position_side)
@@ -228,6 +246,7 @@ class TradingBot:
 
     def reset_ma7_exit_tracking(self, position_side):
         self.ma7_exit_extremes[position_side] = None
+        self.position_entry_modes[position_side] = None
         ratios = self.current_status.setdefault(
             "ma7_exit_ratios", {"long": 0.0, "short": 0.0}
         )
@@ -374,6 +393,7 @@ class TradingBot:
         self.ma7_exit_extremes[position_side] = (
             float(current_ma7) if current_ma7 is not None else None
         )
+        self.position_entry_modes[position_side] = "strategy"
         print(
             f"待進場成交 {position_side.upper()}：mark={current_price:.2f}, "
             f"target={target_price:.2f}, space={profit_space:.3f}%"
@@ -741,12 +761,8 @@ class TradingBot:
                 reference_price=reference_price,
             )
             if trade is not None:
-                current_ma7 = self.current_status.get(
-                    "indicators", {}
-                ).get("ma7")
-                self.ma7_exit_extremes[position_side] = (
-                    float(current_ma7) if current_ma7 is not None else None
-                )
+                self.position_entry_modes[position_side] = "manual"
+                self.ma7_exit_extremes[position_side] = None
             self.refresh_status()
             return trade is not None
 

@@ -103,7 +103,7 @@ function todayInTaipei(){const parts=new Intl.DateTimeFormat("en-US",{timeZone:"
 function pnlClass(v){return Number(v)>0?"positive":Number(v)<0?"negative":"";}
 function alertMessage(v){const e=document.getElementById("alert");e.textContent=v||"";e.classList.toggle("visible",Boolean(v));}
 function cell(label,value,id,cls=""){return "<div class=\"cell\"><div class=\"label\">"+label+"</div><div id=\""+id+"\" class=\"cell-value "+cls+"\">"+value+"</div></div>";}
-function renderPosition(side,p){
+function renderPosition(side,p,entryMode){
     p=p||{};const q=Number(p.quantity||0),has=q>0,prefix=side;
     const grid=document.getElementById(prefix+"-grid");
     grid.innerHTML=
@@ -116,7 +116,7 @@ function renderPosition(side,p){
         cell("&#x7121;&#x69d3;&#x687f;&#x5831;&#x916c;&#x7387;",fmt(p.unleveraged_pnl_pct)+"%",prefix+"-unlev",pnlClass(p.unleveraged_pnl_pct))+
         cell("&#x9032;&#x5834;&#x624b;&#x7e8c;&#x8cbb;",fmt(p.entry_fee,4)+" USDT",prefix+"-fee");
     document.getElementById("close-"+side).disabled=!has;
-    document.getElementById(side+"-hint").textContent=has?(side.toUpperCase()+" / "+fmt(q,6)+" / "+fmt(p.leverage||1,0)+"X"):"目前無持倉";
+    document.getElementById(side+"-hint").textContent=has?(String(entryMode||"strategy").toUpperCase()+" / "+side.toUpperCase()+" / "+fmt(q,6)+" / "+fmt(p.leverage||1,0)+"X"):"目前無持倉";
 }
 function render(s){
     document.getElementById("dot").classList.add("online");document.getElementById("connection").textContent="Connected";
@@ -139,7 +139,7 @@ function render(s){
     document.getElementById("state").textContent=s.running?"運行中":"已停止";
     document.getElementById("state").className="value "+(s.running?"positive":"");
     document.getElementById("start").disabled=Boolean(s.running);document.getElementById("stop").disabled=!s.running;
-    renderPosition("long",positions.long);renderPosition("short",positions.short);const hasPosition=Number((positions.long||{}).quantity||0)>0||Number((positions.short||{}).quantity||0)>0;document.getElementById("open-long").disabled=hasPosition;document.getElementById("open-short").disabled=hasPosition;alertMessage(s.error);
+    const entryModes=s.position_entry_modes||{};renderPosition("long",positions.long,entryModes.long);renderPosition("short",positions.short,entryModes.short);const hasPosition=Number((positions.long||{}).quantity||0)>0||Number((positions.short||{}).quantity||0)>0;document.getElementById("open-long").disabled=hasPosition;document.getElementById("open-short").disabled=hasPosition;alertMessage(s.error);
 }
 async function api(url,options={},retry=true){
     options.headers=Object.assign({},options.headers||{},{"X-Control-Token":token});

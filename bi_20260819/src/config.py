@@ -16,8 +16,8 @@ HEDGE_MODE = True
 PAPER_BALANCE_USDT = float(os.getenv("PAPER_BALANCE_USDT", "150"))
 PAPER_LEVERAGE = float(os.getenv("PAPER_LEVERAGE", "5"))
 PAPER_FEE_RATE = float(os.getenv("PAPER_FEE_RATE", "0.0005"))
-TARGET_PERCENTAGE = float(os.getenv("TARGET_PERCENTAGE", "0.50"))
-MAX_POSITION_VALUE_USDT = float(os.getenv("MAX_POSITION_VALUE_USDT", "75"))
+TARGET_PERCENTAGE = float(os.getenv("TARGET_PERCENTAGE", "1.00"))
+MAX_POSITION_VALUE_USDT = float(os.getenv("MAX_POSITION_VALUE_USDT", "0"))
 MAX_CANDLE_RANGE_ATR = float(os.getenv("MAX_CANDLE_RANGE_ATR", "3.0"))
 MAX_CLOSE_MOVE_ATR = float(os.getenv("MAX_CLOSE_MOVE_ATR", "3.0"))
 MIN_ENTRY_ATR_PCT = float(os.getenv("MIN_ENTRY_ATR_PCT", "0.05"))
@@ -46,8 +46,8 @@ PAPER_STATE_FILE = PROJECT_ROOT / "paper_state.json"
 
 if not 0 < TARGET_PERCENTAGE <= 1:
     raise RuntimeError("TARGET_PERCENTAGE must be greater than 0 and at most 1.")
-if MAX_POSITION_VALUE_USDT <= 0:
-    raise RuntimeError("MAX_POSITION_VALUE_USDT must be greater than 0.")
+if MAX_POSITION_VALUE_USDT < 0:
+    raise RuntimeError("MAX_POSITION_VALUE_USDT must be at least 0.")
 if MAX_CANDLE_RANGE_ATR <= 0 or MAX_CLOSE_MOVE_ATR <= 0:
     raise RuntimeError("ATR spike thresholds must be greater than 0.")
 if (

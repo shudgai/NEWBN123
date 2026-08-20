@@ -76,7 +76,7 @@ class TradingBot:
         )
         self.current_status = {
             "balance": self.executor.get_balance(),
-            "max_position_value": MAX_POSITION_VALUE_USDT,
+            "max_position_value": self.executor.get_balance(),
             "fee_rate": PAPER_FEE_RATE,
             "total_realized_pnl": self.executor.get_total_realized_pnl(),
             "symbol": TRADING_SYMBOL,
@@ -121,6 +121,9 @@ class TradingBot:
     def refresh_status(self):
         with self.lock:
             self.current_status["balance"] = self.executor.get_balance()
+            self.current_status["max_position_value"] = (
+                self.current_status["balance"]
+            )
             self.current_status["positions"] = self.executor.position_summaries(
                 TRADING_SYMBOL
             )

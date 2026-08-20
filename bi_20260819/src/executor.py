@@ -226,7 +226,9 @@ class Executor:
             if not self.entry_price_is_safe(current_price, reference_price):
                 return 0.0
 
-            budget = min(balance * target_percentage, self.max_position_value)
+            budget = balance * target_percentage
+            if self.max_position_value > 0:
+                budget = min(budget, self.max_position_value)
             amount = budget / current_price
             limits = market.get("limits") or {}
             min_cost = (limits.get("cost") or {}).get("min")
@@ -240,7 +242,10 @@ class Executor:
             precise_amount = float(
                 self.exchange.amount_to_precision(symbol, amount)
             )
-            if precise_amount * current_price > self.max_position_value:
+            if (
+                self.max_position_value > 0
+                and precise_amount * current_price > self.max_position_value
+            ):
                 precise_amount = float(
                     self.exchange.amount_to_precision(
                         symbol,
@@ -398,7 +403,10 @@ class Executor:
             if not self.entry_price_is_safe(entry_price, reference_price):
                 return None
             trade_value = amount * entry_price
-            if trade_value > self.max_position_value + 0.01:
+            if (
+                self.max_position_value > 0
+                and trade_value > self.max_position_value + 0.01
+            ):
                 raise RuntimeError(
                     f"單筆成交金額 {trade_value:.2f} USDT 超過 "
                     f"{self.max_position_value:.2f} USDT 上限。"

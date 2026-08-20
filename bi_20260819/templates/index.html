@@ -38,6 +38,7 @@
         .empty { padding:28px; text-align:center; color:var(--muted); font-size:13px; }
         .alert { display:none; margin-bottom:12px; padding:10px 12px; border:1px solid #f1aeb5; border-radius:6px; background:#fff5f5; color:#a51121; font-size:13px; } .alert.visible { display:block; }
         .mobile-position-summary { display:none; }
+        .mobile-bot-state,.mobile-pending { display:none; }
         @media(max-width:900px) { .metrics { grid-template-columns:repeat(3,minmax(0,1fr)); } .positions { grid-template-columns:1fr; } }
         @media(max-width:620px) {
             .topbar-inner,main { width:calc(100% - 20px); }
@@ -49,6 +50,10 @@
             .toolbar,.history-head { align-items:stretch; flex-direction:column; }
             .toolbar { gap:10px; padding-bottom:10px; }
             h1 { font-size:19px; }
+            .title-row { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+            .mobile-bot-state { display:inline-flex; align-items:center; min-height:24px; padding:2px 8px; border-radius:999px; background:#e9ecef; color:var(--muted); font-size:11px; font-weight:750; }
+            .mobile-bot-state.positive { background:#d3f9d8; color:var(--green); }
+            .mobile-pending { display:inline-flex; align-items:center; min-height:24px; padding:2px 8px; border-radius:999px; background:#e7f5ff; color:var(--blue); font-size:10px; font-weight:750; }
             .actions,.history-actions { width:100%; }
             .actions .btn { flex:1; }
             .mobile-position-summary { display:block; margin:12px 0; }
@@ -67,14 +72,18 @@
             .mobile-position-state { color:var(--muted); font-size:10px; font-weight:650; white-space:nowrap; }
             .mobile-pnl { min-height:29px; margin-top:10px; font-size:22px; font-weight:800; overflow-wrap:anywhere; }
             .mobile-return { min-height:19px; font-size:13px; font-weight:720; }
+            .mobile-unleveraged { min-height:18px; color:var(--muted); font-size:12px; font-weight:650; }
             .mobile-position-details { display:grid; grid-template-columns:1fr; gap:5px; margin-top:10px; padding-top:9px; border-top:1px solid rgba(104,113,125,.18); }
             .mobile-detail { display:flex; justify-content:space-between; gap:8px; color:var(--muted); font-size:11px; }
             .mobile-detail strong { min-width:0; color:var(--ink); font-size:12px; overflow-wrap:anywhere; }
+            .mobile-card-actions { display:grid; grid-template-columns:1fr; gap:12px; margin-top:10px; }
+            .mobile-card-actions .btn { width:100%; min-height:39px; padding:0 10px; font-size:16px; }
             .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:12px 0; }
             .metric { padding:11px 12px; }
             .metric .value { font-size:17px; }
             .metric.mobile-secondary { display:none; }
-            .positions { gap:8px; }
+            .metric.mobile-hide { display:none; }
+            .positions { display:none; }
             .position-grid { display:none; }
             .panel-head { min-height:44px; padding:9px 12px; }
             .panel-foot { padding:10px 12px; flex-direction:column; align-items:stretch; }
@@ -90,7 +99,7 @@
 <main>
     <div id="alert" class="alert"></div>
     <section class="toolbar">
-        <div><h1>BTC &#x7d19;&#x4e0a;&#x4ea4;&#x6613;</h1><p class="sub">&#x6bcf;&#x7b46;&#x4f7f;&#x7528;&#x7576;&#x4e0b;&#x5e33;&#x6236;&#x9918;&#x984d; / &#x55ae;&#x4e00;&#x6301;&#x5009; / 5X</p></div>
+        <div><div class="title-row"><h1>BTC &#x7d19;&#x4e0a;&#x4ea4;&#x6613;</h1><span id="mobile-state" class="mobile-bot-state">--</span><span id="mobile-pending" class="mobile-pending">待進場 --</span></div><p class="sub">&#x6bcf;&#x7b46;&#x4f7f;&#x7528;&#x7576;&#x4e0b;&#x5e33;&#x6236;&#x9918;&#x984d; / &#x55ae;&#x4e00;&#x6301;&#x5009; / 5X</p></div>
         <div class="actions">
             <button id="start" class="btn start" onclick="controlBot(&quot;start&quot;)"><i data-lucide="play"></i>&#x555f;&#x52d5;</button>
             <button id="stop" class="btn stop" onclick="controlBot(&quot;stop&quot;)"><i data-lucide="square"></i>&#x505c;&#x6b62;</button>
@@ -107,21 +116,25 @@
                 <div class="mobile-card-head"><span class="mobile-side">多單 LONG</span><span id="mobile-long-state" class="mobile-position-state">無持倉</span></div>
                 <div id="mobile-long-pnl" class="mobile-pnl">--</div>
                 <div id="mobile-long-return" class="mobile-return">--</div>
+                <div id="mobile-long-unleveraged" class="mobile-unleveraged">--</div>
                 <div class="mobile-position-details">
                     <div class="mobile-detail"><span>進場</span><strong id="mobile-long-entry">--</strong></div>
                     <div class="mobile-detail"><span>現價</span><strong id="mobile-long-mark">--</strong></div>
                     <div class="mobile-detail"><span>數量</span><strong id="mobile-long-qty">--</strong></div>
                 </div>
+                <div class="mobile-card-actions"><button id="mobile-open-long" class="btn open-long" onclick="openPosition(&quot;long&quot;)">開多單</button><button id="mobile-close-long" class="btn close-long" onclick="closePosition(&quot;long&quot;)">平多單</button></div>
             </article>
             <article id="mobile-short-card" class="mobile-position-card short">
                 <div class="mobile-card-head"><span class="mobile-side">空單 SHORT</span><span id="mobile-short-state" class="mobile-position-state">無持倉</span></div>
                 <div id="mobile-short-pnl" class="mobile-pnl">--</div>
                 <div id="mobile-short-return" class="mobile-return">--</div>
+                <div id="mobile-short-unleveraged" class="mobile-unleveraged">--</div>
                 <div class="mobile-position-details">
                     <div class="mobile-detail"><span>進場</span><strong id="mobile-short-entry">--</strong></div>
                     <div class="mobile-detail"><span>現價</span><strong id="mobile-short-mark">--</strong></div>
                     <div class="mobile-detail"><span>數量</span><strong id="mobile-short-qty">--</strong></div>
                 </div>
+                <div class="mobile-card-actions"><button id="mobile-open-short" class="btn open-short" onclick="openPosition(&quot;short&quot;)">開空單</button><button id="mobile-close-short" class="btn close-short" onclick="closePosition(&quot;short&quot;)">平空單</button></div>
             </article>
         </div>
     </section>
@@ -129,10 +142,10 @@
     <section class="metrics">
         <div class="metric"><div class="label">&#x5e33;&#x6236;&#x9918;&#x984d;</div><div class="value"><span id="balance">150.00</span> <span class="unit">USDT</span></div></div>
         <div class="metric"><div class="label">&#x7e3d;&#x5be6;&#x73fe;&#x640d;&#x76ca;</div><div id="realized" class="value">0.00</div></div>
-        <div class="metric"><div class="label">BTC &#x73fe;&#x50f9;</div><div class="value price"><span id="current-price">--</span> <span class="unit">USDT</span></div></div>
+        <div class="metric mobile-hide"><div class="label">BTC &#x73fe;&#x50f9;</div><div class="value price"><span id="current-price">--</span> <span class="unit">USDT</span></div></div>
         <div class="metric mobile-secondary"><div class="label">MA7 &#x7d2f;&#x7a4d;&#x53cd;&#x8f49; / ATR</div><div id="exit-ma7-ratio" class="value">--</div></div>
-        <div class="metric"><div class="label">&#x5f85;&#x9032;&#x5834;</div><div id="pending-entry" class="value">--</div></div>
-        <div class="metric"><div class="label">&#x6a5f;&#x5668;&#x4eba;&#x72c0;&#x614b;</div><div id="state" class="value">--</div></div>
+        <div class="metric mobile-hide"><div class="label">&#x5f85;&#x9032;&#x5834;</div><div id="pending-entry" class="value">--</div></div>
+        <div class="metric mobile-hide"><div class="label">&#x6a5f;&#x5668;&#x4eba;&#x72c0;&#x614b;</div><div id="state" class="value">--</div></div>
     </section>
 
     <section class="positions">
@@ -174,10 +187,12 @@ function renderMobilePosition(side,p,entryMode){
     const card=document.getElementById("mobile-"+side+"-card");card.classList.toggle("active",has);
     document.getElementById("mobile-"+side+"-state").textContent=has?(String(entryMode||"strategy").toUpperCase()+" · "+fmt(p.leverage||1,0)+"X"):"無持倉";
     const pnl=document.getElementById("mobile-"+side+"-pnl");pnl.textContent=has?fmt(p.unrealized_pnl)+" USDT":"--";pnl.className="mobile-pnl "+(has?pnlClass(p.unrealized_pnl):"");
-    const result=document.getElementById("mobile-"+side+"-return");result.textContent=has?fmt(p.leveraged_pnl_pct)+"%":"--";result.className="mobile-return "+(has?pnlClass(p.leveraged_pnl_pct):"");
+    const result=document.getElementById("mobile-"+side+"-return");result.textContent=has?"槓桿損益 "+fmt(p.leveraged_pnl_pct)+"%":"槓桿損益 --";result.className="mobile-return "+(has?pnlClass(p.leveraged_pnl_pct):"");
+    const unleveraged=document.getElementById("mobile-"+side+"-unleveraged");unleveraged.textContent=has?"無槓桿損益 "+fmt(p.unleveraged_pnl_pct)+"%":"無槓桿損益 --";unleveraged.className="mobile-unleveraged "+(has?pnlClass(p.unleveraged_pnl_pct):"");
     document.getElementById("mobile-"+side+"-entry").textContent=has?fmt(p.entry_price):"--";
     document.getElementById("mobile-"+side+"-mark").textContent=has?fmt(p.mark_price):"--";
     document.getElementById("mobile-"+side+"-qty").textContent=has?fmt(q,6):"--";
+    document.getElementById("mobile-close-"+side).disabled=!has;
 }
 function renderPosition(side,p,entryMode){
     p=p||{};const q=Number(p.quantity||0),has=q>0,prefix=side;
@@ -206,10 +221,13 @@ function render(s){
     document.getElementById("exit-ma7-ratio").textContent=activeSide?fmt(exitRatios[activeSide]||0,3)+" / "+fmt(s.exit_ma7_turn_atr_ratio||0.25,3):"--";
     const pending=s.pending_entry||null,retained=s.retained_entry_signal||null;
     document.getElementById("pending-entry").textContent=pending?String(pending.side||"").toUpperCase()+" @ "+fmt(pending.target_price):retained?"WAIT "+String(retained.side||"").toUpperCase()+" / "+String(retained.remaining_candles||0)+"K":"--";
+    document.getElementById("mobile-pending").textContent=pending?"待進場 "+String(pending.side||"").toUpperCase()+" "+fmt(pending.target_price):retained?"等待 "+String(retained.side||"").toUpperCase()+" "+String(retained.remaining_candles||0)+"K":"待進場 --";
     document.getElementById("state").textContent=s.running?"運行中":"已停止";
     document.getElementById("state").className="value "+(s.running?"positive":"");
+    document.getElementById("mobile-state").textContent=s.running?"運行中":"已停止";
+    document.getElementById("mobile-state").className="mobile-bot-state "+(s.running?"positive":"");
     document.getElementById("start").disabled=Boolean(s.running);document.getElementById("stop").disabled=!s.running;
-    const entryModes=s.position_entry_modes||{};renderPosition("long",positions.long,entryModes.long);renderPosition("short",positions.short,entryModes.short);renderMobilePosition("long",positions.long,entryModes.long);renderMobilePosition("short",positions.short,entryModes.short);const hasLong=Number((positions.long||{}).quantity||0)>0,hasShort=Number((positions.short||{}).quantity||0)>0,hasPosition=hasLong||hasShort;document.getElementById("mobile-overview-status").textContent=hasLong?"多單持倉中":hasShort?"空單持倉中":"目前空倉";document.getElementById("mobile-overview-status").className="mobile-overview-state "+(hasLong?"positive":hasShort?"negative":"");document.getElementById("open-long").disabled=hasPosition;document.getElementById("open-short").disabled=hasPosition;alertMessage(s.error);
+    const entryModes=s.position_entry_modes||{};renderPosition("long",positions.long,entryModes.long);renderPosition("short",positions.short,entryModes.short);renderMobilePosition("long",positions.long,entryModes.long);renderMobilePosition("short",positions.short,entryModes.short);const hasLong=Number((positions.long||{}).quantity||0)>0,hasShort=Number((positions.short||{}).quantity||0)>0,hasPosition=hasLong||hasShort;document.getElementById("mobile-overview-status").textContent=hasLong?"多單持倉中":hasShort?"空單持倉中":"目前空倉";document.getElementById("mobile-overview-status").className="mobile-overview-state "+(hasLong?"positive":hasShort?"negative":"");document.getElementById("open-long").disabled=hasPosition;document.getElementById("open-short").disabled=hasPosition;document.getElementById("mobile-open-long").disabled=hasPosition;document.getElementById("mobile-open-short").disabled=hasPosition;alertMessage(s.error);
 }
 async function api(url,options={},retry=true){
     options.headers=Object.assign({},options.headers||{},{"X-Control-Token":token});

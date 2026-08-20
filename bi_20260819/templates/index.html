@@ -37,8 +37,52 @@
         .table-wrap { overflow:auto; } table { width:100%; border-collapse:collapse; min-width:1040px; } th,td { padding:10px 12px; border-bottom:1px solid var(--line); text-align:right; font-size:12px; white-space:nowrap; } th { color:var(--muted); background:#fafbfc; font-weight:650; } th:first-child,td:first-child,th:nth-child(2),td:nth-child(2) { text-align:left; } tbody tr:last-child td { border-bottom:0; }
         .empty { padding:28px; text-align:center; color:var(--muted); font-size:13px; }
         .alert { display:none; margin-bottom:12px; padding:10px 12px; border:1px solid #f1aeb5; border-radius:6px; background:#fff5f5; color:#a51121; font-size:13px; } .alert.visible { display:block; }
+        .mobile-position-summary { display:none; }
         @media(max-width:900px) { .metrics { grid-template-columns:repeat(3,minmax(0,1fr)); } .positions { grid-template-columns:1fr; } }
-        @media(max-width:620px) { .topbar-inner,main { width:calc(100% - 20px); } .toolbar,.history-head { align-items:stretch; flex-direction:column; } .actions,.history-actions { width:100%; } .actions .btn { flex:1; } .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .history-actions { flex-wrap:wrap; } .history-actions input { flex:1; } }
+        @media(max-width:620px) {
+            .topbar-inner,main { width:calc(100% - 20px); }
+            .topbar-inner { min-height:54px; }
+            .brand { align-items:flex-start; flex-direction:column; gap:1px; }
+            .brand strong { font-size:17px; }
+            .brand span { font-size:10px; }
+            main { margin-top:10px; }
+            .toolbar,.history-head { align-items:stretch; flex-direction:column; }
+            .toolbar { gap:10px; padding-bottom:10px; }
+            h1 { font-size:19px; }
+            .actions,.history-actions { width:100%; }
+            .actions .btn { flex:1; }
+            .mobile-position-summary { display:block; margin:12px 0; }
+            .mobile-overview-head { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:8px; padding:0 2px; }
+            .mobile-overview-title { font-size:13px; color:var(--muted); }
+            .mobile-overview-price { font-size:21px; font-weight:780; color:var(--blue); }
+            .mobile-overview-state { margin-top:2px; text-align:right; font-size:11px; font-weight:700; }
+            .mobile-position-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+            .mobile-position-card { min-width:0; padding:12px; border:1px solid var(--line); border-radius:9px; background:#fff; box-shadow:0 2px 8px rgba(23,32,42,.05); }
+            .mobile-position-card.long.active { border-color:#63c7a8; background:#f1fbf7; }
+            .mobile-position-card.short.active { border-color:#ee9b9b; background:#fff6f6; }
+            .mobile-card-head { display:flex; align-items:flex-start; flex-direction:column; gap:2px; }
+            .mobile-side { font-size:15px; font-weight:800; }
+            .mobile-position-card.long .mobile-side { color:var(--green); }
+            .mobile-position-card.short .mobile-side { color:var(--red); }
+            .mobile-position-state { color:var(--muted); font-size:10px; font-weight:650; white-space:nowrap; }
+            .mobile-pnl { min-height:29px; margin-top:10px; font-size:22px; font-weight:800; overflow-wrap:anywhere; }
+            .mobile-return { min-height:19px; font-size:13px; font-weight:720; }
+            .mobile-position-details { display:grid; grid-template-columns:1fr; gap:5px; margin-top:10px; padding-top:9px; border-top:1px solid rgba(104,113,125,.18); }
+            .mobile-detail { display:flex; justify-content:space-between; gap:8px; color:var(--muted); font-size:11px; }
+            .mobile-detail strong { min-width:0; color:var(--ink); font-size:12px; overflow-wrap:anywhere; }
+            .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:12px 0; }
+            .metric { padding:11px 12px; }
+            .metric .value { font-size:17px; }
+            .metric.mobile-secondary { display:none; }
+            .positions { gap:8px; }
+            .position-grid { display:none; }
+            .panel-head { min-height:44px; padding:9px 12px; }
+            .panel-foot { padding:10px 12px; flex-direction:column; align-items:stretch; }
+            .position-actions { display:grid; grid-template-columns:1fr 1fr; }
+            .position-actions .btn { width:100%; }
+            .history-actions { flex-wrap:wrap; }
+            .history-actions input { flex:1; }
+        }
     </style>
 </head>
 <body>
@@ -53,19 +97,41 @@
         </div>
     </section>
 
+    <section class="mobile-position-summary" aria-label="多空單持倉總覽">
+        <div class="mobile-overview-head">
+            <div><div class="mobile-overview-title">目前持倉</div><div id="mobile-overview-status" class="mobile-overview-state">讀取中</div></div>
+            <div><div class="mobile-overview-title">BTC 現價</div><div id="mobile-current-price" class="mobile-overview-price">--</div></div>
+        </div>
+        <div class="mobile-position-cards">
+            <article id="mobile-long-card" class="mobile-position-card long">
+                <div class="mobile-card-head"><span class="mobile-side">多單 LONG</span><span id="mobile-long-state" class="mobile-position-state">無持倉</span></div>
+                <div id="mobile-long-pnl" class="mobile-pnl">--</div>
+                <div id="mobile-long-return" class="mobile-return">--</div>
+                <div class="mobile-position-details">
+                    <div class="mobile-detail"><span>進場</span><strong id="mobile-long-entry">--</strong></div>
+                    <div class="mobile-detail"><span>現價</span><strong id="mobile-long-mark">--</strong></div>
+                    <div class="mobile-detail"><span>數量</span><strong id="mobile-long-qty">--</strong></div>
+                </div>
+            </article>
+            <article id="mobile-short-card" class="mobile-position-card short">
+                <div class="mobile-card-head"><span class="mobile-side">空單 SHORT</span><span id="mobile-short-state" class="mobile-position-state">無持倉</span></div>
+                <div id="mobile-short-pnl" class="mobile-pnl">--</div>
+                <div id="mobile-short-return" class="mobile-return">--</div>
+                <div class="mobile-position-details">
+                    <div class="mobile-detail"><span>進場</span><strong id="mobile-short-entry">--</strong></div>
+                    <div class="mobile-detail"><span>現價</span><strong id="mobile-short-mark">--</strong></div>
+                    <div class="mobile-detail"><span>數量</span><strong id="mobile-short-qty">--</strong></div>
+                </div>
+            </article>
+        </div>
+    </section>
+
     <section class="metrics">
         <div class="metric"><div class="label">&#x5e33;&#x6236;&#x9918;&#x984d;</div><div class="value"><span id="balance">150.00</span> <span class="unit">USDT</span></div></div>
         <div class="metric"><div class="label">&#x7e3d;&#x5be6;&#x73fe;&#x640d;&#x76ca;</div><div id="realized" class="value">0.00</div></div>
-        <div class="metric"><div class="label">&#x6bcf;&#x7b46;&#x958b;&#x5009;&#x91d1;&#x984d;</div><div class="value"><span id="max-value">75.00</span> <span class="unit">USDT</span></div></div>
-        <div class="metric"><div class="label">&#x624b;&#x7e8c;&#x8cbb;&#x7387; / &#x6bcf;&#x908a;</div><div id="fee-rate" class="value">0.050%</div></div>
         <div class="metric"><div class="label">BTC &#x73fe;&#x50f9;</div><div class="value price"><span id="current-price">--</span> <span class="unit">USDT</span></div></div>
-        <div class="metric"><div class="label">MA7</div><div id="ma7" class="value">--</div></div>
-        <div class="metric"><div class="label">MA25</div><div id="ma25" class="value">--</div></div>
-        <div class="metric"><div class="label">MA99</div><div id="ma99" class="value">--</div></div>
-        <div class="metric"><div class="label">ATR14</div><div id="atr14" class="value">--</div></div>
-        <div class="metric"><div class="label">MA7 &#x7d2f;&#x7a4d;&#x53cd;&#x8f49; / ATR</div><div id="exit-ma7-ratio" class="value">--</div></div>
+        <div class="metric mobile-secondary"><div class="label">MA7 &#x7d2f;&#x7a4d;&#x53cd;&#x8f49; / ATR</div><div id="exit-ma7-ratio" class="value">--</div></div>
         <div class="metric"><div class="label">&#x5f85;&#x9032;&#x5834;</div><div id="pending-entry" class="value">--</div></div>
-        <div class="metric"><div class="label">Entry Guard</div><div id="spike-guard" class="value">NORMAL</div></div>
         <div class="metric"><div class="label">&#x6a5f;&#x5668;&#x4eba;&#x72c0;&#x614b;</div><div id="state" class="value">--</div></div>
     </section>
 
@@ -103,6 +169,16 @@ function todayInTaipei(){const parts=new Intl.DateTimeFormat("en-US",{timeZone:"
 function pnlClass(v){return Number(v)>0?"positive":Number(v)<0?"negative":"";}
 function alertMessage(v){const e=document.getElementById("alert");e.textContent=v||"";e.classList.toggle("visible",Boolean(v));}
 function cell(label,value,id,cls=""){return "<div class=\"cell\"><div class=\"label\">"+label+"</div><div id=\""+id+"\" class=\"cell-value "+cls+"\">"+value+"</div></div>";}
+function renderMobilePosition(side,p,entryMode){
+    p=p||{};const q=Number(p.quantity||0),has=q>0;
+    const card=document.getElementById("mobile-"+side+"-card");card.classList.toggle("active",has);
+    document.getElementById("mobile-"+side+"-state").textContent=has?(String(entryMode||"strategy").toUpperCase()+" · "+fmt(p.leverage||1,0)+"X"):"無持倉";
+    const pnl=document.getElementById("mobile-"+side+"-pnl");pnl.textContent=has?fmt(p.unrealized_pnl)+" USDT":"--";pnl.className="mobile-pnl "+(has?pnlClass(p.unrealized_pnl):"");
+    const result=document.getElementById("mobile-"+side+"-return");result.textContent=has?fmt(p.leveraged_pnl_pct)+"%":"--";result.className="mobile-return "+(has?pnlClass(p.leveraged_pnl_pct):"");
+    document.getElementById("mobile-"+side+"-entry").textContent=has?fmt(p.entry_price):"--";
+    document.getElementById("mobile-"+side+"-mark").textContent=has?fmt(p.mark_price):"--";
+    document.getElementById("mobile-"+side+"-qty").textContent=has?fmt(q,6):"--";
+}
 function renderPosition(side,p,entryMode){
     p=p||{};const q=Number(p.quantity||0),has=q>0,prefix=side;
     const grid=document.getElementById(prefix+"-grid");
@@ -121,25 +197,19 @@ function renderPosition(side,p,entryMode){
 function render(s){
     document.getElementById("dot").classList.add("online");document.getElementById("connection").textContent="Connected";
     document.getElementById("current-price").textContent=s.current_price==null?"--":fmt(s.current_price);
+    document.getElementById("mobile-current-price").textContent=s.current_price==null?"--":fmt(s.current_price);
     document.getElementById("balance").textContent=fmt(s.balance);
     const realized=Number(s.total_realized_pnl||0),re=document.getElementById("realized");re.textContent=fmt(realized)+" USDT";re.className="value "+pnlClass(realized);
-    document.getElementById("max-value").textContent=fmt(s.max_position_value);
-    document.getElementById("fee-rate").textContent=fmt(Number(s.fee_rate||0)*100,3)+"%";
     const indicators=s.indicators||{};
-    document.getElementById("ma7").textContent=indicators.ma7==null?"--":fmt(indicators.ma7);
-    document.getElementById("ma25").textContent=indicators.ma25==null?"--":fmt(indicators.ma25);
-    document.getElementById("ma99").textContent=indicators.ma99==null?"--":fmt(indicators.ma99);
-    document.getElementById("atr14").textContent=indicators.atr14==null?"--":fmt(indicators.atr14);
     const positions=s.positions||{},exitRatios=s.ma7_exit_ratios||{};
     const activeSide=Number((positions.long||{}).quantity||0)>0?"long":Number((positions.short||{}).quantity||0)>0?"short":null;
     document.getElementById("exit-ma7-ratio").textContent=activeSide?fmt(exitRatios[activeSide]||0,3)+" / "+fmt(s.exit_ma7_turn_atr_ratio||0.25,3):"--";
     const pending=s.pending_entry||null,retained=s.retained_entry_signal||null;
     document.getElementById("pending-entry").textContent=pending?String(pending.side||"").toUpperCase()+" @ "+fmt(pending.target_price):retained?"WAIT "+String(retained.side||"").toUpperCase()+" / "+String(retained.remaining_candles||0)+"K":"--";
-    const guard=document.getElementById("spike-guard");guard.textContent=s.spike_protection?"SPIKE":s.low_volatility_protection?"LOW VOL":s.low_volume_protection?"LOW VOLUME "+fmt(indicators.rvol,2):"NORMAL";guard.className="value "+(s.spike_protection||s.low_volatility_protection||s.low_volume_protection?"negative":"positive");
     document.getElementById("state").textContent=s.running?"運行中":"已停止";
     document.getElementById("state").className="value "+(s.running?"positive":"");
     document.getElementById("start").disabled=Boolean(s.running);document.getElementById("stop").disabled=!s.running;
-    const entryModes=s.position_entry_modes||{};renderPosition("long",positions.long,entryModes.long);renderPosition("short",positions.short,entryModes.short);const hasPosition=Number((positions.long||{}).quantity||0)>0||Number((positions.short||{}).quantity||0)>0;document.getElementById("open-long").disabled=hasPosition;document.getElementById("open-short").disabled=hasPosition;alertMessage(s.error);
+    const entryModes=s.position_entry_modes||{};renderPosition("long",positions.long,entryModes.long);renderPosition("short",positions.short,entryModes.short);renderMobilePosition("long",positions.long,entryModes.long);renderMobilePosition("short",positions.short,entryModes.short);const hasLong=Number((positions.long||{}).quantity||0)>0,hasShort=Number((positions.short||{}).quantity||0)>0,hasPosition=hasLong||hasShort;document.getElementById("mobile-overview-status").textContent=hasLong?"多單持倉中":hasShort?"空單持倉中":"目前空倉";document.getElementById("mobile-overview-status").className="mobile-overview-state "+(hasLong?"positive":hasShort?"negative":"");document.getElementById("open-long").disabled=hasPosition;document.getElementById("open-short").disabled=hasPosition;alertMessage(s.error);
 }
 async function api(url,options={},retry=true){
     options.headers=Object.assign({},options.headers||{},{"X-Control-Token":token});

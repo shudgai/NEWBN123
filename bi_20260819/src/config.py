@@ -24,6 +24,8 @@ MIN_ENTRY_ATR_PCT = float(os.getenv("MIN_ENTRY_ATR_PCT", "0.05"))
 MIN_ENTRY_MA7_TURN_ATR_RATIO = float(
     os.getenv("MIN_ENTRY_MA7_TURN_ATR_RATIO", "0.15")
 )
+MIN_ENTRY_RVOL = float(os.getenv("MIN_ENTRY_RVOL", "0.80"))
+RVOL_LOOKBACK = int(os.getenv("RVOL_LOOKBACK", "20"))
 MIN_EXIT_MA7_TURN_ATR_RATIO = float(
     os.getenv("MIN_EXIT_MA7_TURN_ATR_RATIO", "0.25")
 )
@@ -74,6 +76,10 @@ if (
     or MIN_EXIT_MA7_TURN_ATR_RATIO <= 0
 ):
     raise RuntimeError("Minimum volatility thresholds must be positive.")
+if MIN_ENTRY_RVOL <= 0:
+    raise RuntimeError("MIN_ENTRY_RVOL must be greater than 0.")
+if RVOL_LOOKBACK < 2:
+    raise RuntimeError("RVOL_LOOKBACK must be at least 2.")
 if MA7_EXIT_CONFIRM_CANDLES < 1:
     raise RuntimeError("MA7_EXIT_CONFIRM_CANDLES must be at least 1.")
 if not 0 < STOP_LOSS_PCT < 100:

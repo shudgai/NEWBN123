@@ -20,9 +20,11 @@ from src.config import (
     MIN_ENTRY_ATR_PCT,
     MIN_ENTRY_PULLBACK_PCT,
     MIN_ENTRY_MA7_TURN_ATR_RATIO,
+    MIN_ENTRY_RVOL,
     MIN_EXIT_MA7_TURN_ATR_RATIO,
     PAPER_FEE_RATE,
     PENDING_ENTRY_MINUTES,
+    RVOL_LOOKBACK,
     SIGNAL_TIMEFRAME,
     STATUS_FILE,
     STOP_LOSS_PCT,
@@ -99,6 +101,8 @@ class TradingBot:
             "current_price": None,
             "signal_timeframe": SIGNAL_TIMEFRAME,
             "entry_ma7_turn_atr_ratio": MIN_ENTRY_MA7_TURN_ATR_RATIO,
+            "min_entry_rvol": MIN_ENTRY_RVOL,
+            "rvol_lookback": RVOL_LOOKBACK,
             "exit_ma7_turn_atr_ratio": MIN_EXIT_MA7_TURN_ATR_RATIO,
             "ma7_exit_confirm_candles": MA7_EXIT_CONFIRM_CANDLES,
             "stop_loss_pct": STOP_LOSS_PCT,
@@ -134,10 +138,14 @@ class TradingBot:
                 "ma7_turn_atr_ratio": None,
                 "range_atr_ratio": None,
                 "close_move_atr_ratio": None,
+                "volume": None,
+                "volume_median": None,
+                "rvol": None,
             },
             "signal": "waiting",
             "spike_protection": False,
             "low_volatility_protection": False,
+            "low_volume_protection": False,
             "last_processed_candle": self.last_processed_candle,
             "mode": "paper" if DRY_RUN else "live",
             "running": False,
@@ -468,6 +476,7 @@ class TradingBot:
         eligible = (
             side in {"long", "short"}
             and not result["low_volatility"]
+            and result["entry_volume_ok"]
             and direction_ok
             and candle_ok
         )
@@ -533,33 +542,26 @@ class TradingBot:
             self.clear_pending_entry("等待超過期限")
             return None
 
+        entry_rvol = float(pending.get("entry_rvol") or 0)
+        if entry_rvol < MIN_ENTRY_RVOL:
+            self.clear_pending_entry(
+                f"RVOL {entry_rvol:.3f} 低於 {MIN_ENTRY_RVOL:.3f}"
+            )
+            return None
+
         position_side = pending.get("side")
         target_price = float(pending.get("target_price") or 0)
         invalidation_price = float(pending.get("invalidation_price") or 0)
-        pullback_pct = float(pending.get("pullback_pct") or 0)
         if position_side == "long":
-            favorable_extreme = max(
-                float(pending.get("favorable_extreme") or 0), current_price
-            )
-            raw_target = favorable_extreme * (1 - pullback_pct / 100)
-            target_price = max(target_price, raw_target)
             invalidated = current_price <= invalidation_price
             reached_target = current_price <= target_price
         elif position_side == "short":
-            stored_extreme = float(
-                pending.get("favorable_extreme") or current_price
-            )
-            favorable_extreme = min(stored_extreme, current_price)
-            raw_target = favorable_extreme * (1 + pullback_pct / 100)
-            target_price = min(target_price, raw_target)
             invalidated = current_price >= invalidation_price
             reached_target = current_price >= target_price
         else:
             self.clear_pending_entry("方向格式錯誤")
             return None
 
-        pending["favorable_extreme"] = favorable_extreme
-        pending["target_price"] = target_price
         self.current_status["pending_entry"] = pending
 
         if invalidated:
@@ -619,6 +621,14 @@ class TradingBot:
                 return self.pending_entry
             self.clear_pending_entry("出現反方向新訊號")
 
+        entry_rvol = float(result["indicators"].get("rvol") or 0)
+        if entry_rvol < MIN_ENTRY_RVOL:
+            print(
+                f"取消建立待進場 {signal.upper()}：RVOL="
+                f"{entry_rvol:.3f}（門檻 {MIN_ENTRY_RVOL:.3f}）。"
+            )
+            return None
+
         signal_close = float(result["indicators"]["close"])
         atr_pct = float(result["indicators"]["atr_pct"])
         pullback_pct = self.entry_pullback_pct(atr_pct)
@@ -643,7 +653,8 @@ class TradingBot:
             "target_price": target_price,
             "invalidation_price": invalidation_price,
             "pullback_pct": pullback_pct,
-            "favorable_extreme": signal_close,
+            "entry_rvol": entry_rvol,
+            "target_locked": True,
         }
         self.current_status["pending_entry"] = self.pending_entry
         print(
@@ -665,6 +676,9 @@ class TradingBot:
         closed["ma7"] = closed["close"].rolling(7).mean()
         closed["ma25"] = closed["close"].rolling(25).mean()
         closed["ma99"] = closed["close"].rolling(99).mean()
+        closed["volume_median"] = (
+            closed["volume"].shift(1).rolling(RVOL_LOOKBACK).median()
+        )
         previous_close = closed["close"].shift(1)
         true_range = pd.concat(
             [
@@ -697,6 +711,12 @@ class TradingBot:
         atr14 = float(latest["atr14"])
         latest_close = float(latest["close"])
         atr_pct = atr14 / latest_close * 100 if latest_close > 0 else 0.0
+        latest_volume = float(latest["volume"])
+        volume_median = float(latest["volume_median"])
+        if pd.isna(volume_median) or volume_median <= 0:
+            volume_median = 0.0
+        rvol = latest_volume / volume_median if volume_median > 0 else 0.0
+        entry_volume_ok = rvol >= MIN_ENTRY_RVOL
         ma7_turn_atr_ratio = (
             abs(float(latest["ma7"]) - float(previous["ma7"])) / atr14
             if atr14 > 0
@@ -724,12 +744,14 @@ class TradingBot:
         if (
             not spike_detected
             and not low_volatility
+            and entry_volume_ok
             and long_timing
         ):
             signal = "long"
         elif (
             not spike_detected
             and not low_volatility
+            and entry_volume_ok
             and short_timing
         ):
             signal = "short"
@@ -744,6 +766,7 @@ class TradingBot:
             "signal": signal,
             "spike_detected": spike_detected,
             "low_volatility": low_volatility,
+            "entry_volume_ok": entry_volume_ok,
             "ma7_turns_up": ma7_turns_up,
             "ma7_turns_down": ma7_turns_down,
             "ma7_rising": ma7_rising,
@@ -771,6 +794,9 @@ class TradingBot:
                 "ma7_turn_atr_ratio": ma7_turn_atr_ratio,
                 "range_atr_ratio": range_atr_ratio,
                 "close_move_atr_ratio": close_move_atr_ratio,
+                "volume": latest_volume,
+                "volume_median": volume_median,
+                "rvol": rvol,
             },
         }
 
@@ -810,6 +836,9 @@ class TradingBot:
             self.current_status["low_volatility_protection"] = result[
                 "low_volatility"
             ]
+            self.current_status["low_volume_protection"] = not result[
+                "entry_volume_ok"
+            ]
             self.current_status["current_price"] = current_price
             if result["candle_time"] == self.last_processed_candle:
                 self.refresh_status()
@@ -836,6 +865,12 @@ class TradingBot:
                     f"ATR={result['indicators']['atr_pct']:.4f}%, "
                     "MA7-turn/ATR="
                     f"{result['indicators']['ma7_turn_atr_ratio']:.3f}"
+                )
+            elif not result["entry_volume_ok"]:
+                print(
+                    "成交量不足，暫停新開倉："
+                    f"RVOL={result['indicators']['rvol']:.3f} "
+                    f"（門檻 {MIN_ENTRY_RVOL:.3f}）。"
                 )
 
             current_ma7 = float(result["indicators"]["ma7"])

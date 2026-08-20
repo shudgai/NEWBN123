@@ -135,7 +135,7 @@ function render(s){
     document.getElementById("exit-ma7-ratio").textContent=activeSide?fmt(exitRatios[activeSide]||0,3)+" / "+fmt(s.exit_ma7_turn_atr_ratio||0.25,3):"--";
     const pending=s.pending_entry||null,retained=s.retained_entry_signal||null;
     document.getElementById("pending-entry").textContent=pending?String(pending.side||"").toUpperCase()+" @ "+fmt(pending.target_price):retained?"WAIT "+String(retained.side||"").toUpperCase()+" / "+String(retained.remaining_candles||0)+"K":"--";
-    const guard=document.getElementById("spike-guard");guard.textContent=s.spike_protection?"SPIKE":s.low_volatility_protection?"LOW VOL":"NORMAL";guard.className="value "+(s.spike_protection||s.low_volatility_protection?"negative":"positive");
+    const guard=document.getElementById("spike-guard");guard.textContent=s.spike_protection?"SPIKE":s.low_volatility_protection?"LOW VOL":s.low_volume_protection?"LOW VOLUME "+fmt(indicators.rvol,2):"NORMAL";guard.className="value "+(s.spike_protection||s.low_volatility_protection||s.low_volume_protection?"negative":"positive");
     document.getElementById("state").textContent=s.running?"運行中":"已停止";
     document.getElementById("state").className="value "+(s.running?"positive":"");
     document.getElementById("start").disabled=Boolean(s.running);document.getElementById("stop").disabled=!s.running;

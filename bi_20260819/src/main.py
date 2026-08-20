@@ -10,6 +10,7 @@ import pandas as pd
 from src.config import (
     DRY_RUN,
     ENTRY_PULLBACK_ATR_RATIO,
+    ENTRY_SIGNAL_HOLD_CANDLES,
     LOOP_INTERVAL_SECONDS,
     MAX_CANDLE_RANGE_ATR,
     MAX_CLOSE_MOVE_ATR,
@@ -19,10 +20,8 @@ from src.config import (
     MIN_ENTRY_PULLBACK_PCT,
     MIN_ENTRY_MA7_TURN_ATR_RATIO,
     MIN_EXIT_MA7_TURN_ATR_RATIO,
-    MIN_PROFIT_SPACE_PCT,
     PAPER_FEE_RATE,
     PENDING_ENTRY_MINUTES,
-    PROFIT_LOOKBACK_CANDLES,
     SIGNAL_TIMEFRAME,
     STATUS_FILE,
     STOP_LOSS_PCT,
@@ -71,6 +70,10 @@ class TradingBot:
         self.pending_entry = (
             stored_pending if isinstance(stored_pending, dict) else None
         )
+        stored_retained = saved_status.get("retained_entry_signal")
+        self.retained_entry_signal = (
+            stored_retained if isinstance(stored_retained, dict) else None
+        )
         self.current_status = {
             "balance": self.executor.get_balance(),
             "max_position_value": MAX_POSITION_VALUE_USDT,
@@ -88,9 +91,9 @@ class TradingBot:
                 MAX_ENTRY_PULLBACK_PCT,
             ],
             "pending_entry_minutes": PENDING_ENTRY_MINUTES,
-            "profit_lookback_candles": PROFIT_LOOKBACK_CANDLES,
-            "min_profit_space_pct": MIN_PROFIT_SPACE_PCT,
+            "entry_signal_hold_candles": ENTRY_SIGNAL_HOLD_CANDLES,
             "pending_entry": self.pending_entry,
+            "retained_entry_signal": self.retained_entry_signal,
             "ma7_exit_extremes": dict(self.ma7_exit_extremes),
             "position_entry_modes": dict(self.position_entry_modes),
             "ma7_exit_ratios": {"long": 0.0, "short": 0.0},
@@ -131,6 +134,9 @@ class TradingBot:
                 self.position_entry_modes
             )
             self.current_status["pending_entry"] = self.pending_entry
+            self.current_status["retained_entry_signal"] = (
+                self.retained_entry_signal
+            )
             save_status(self.current_status)
             return dict(self.current_status)
 
@@ -253,25 +259,95 @@ class TradingBot:
         ratios[position_side] = 0.0
 
     @staticmethod
-    def profit_space_pct(position_side, entry_price, target_price):
-        if entry_price <= 0 or target_price <= 0:
-            return 0.0
-        if position_side == "long":
-            distance = target_price - entry_price
-        else:
-            distance = entry_price - target_price
-        return max(distance / entry_price * 100, 0.0)
-
-    @staticmethod
-    def has_minimum_profit_space(profit_space):
-        return profit_space + 1e-9 >= MIN_PROFIT_SPACE_PCT
-
-    @staticmethod
     def entry_pullback_pct(atr_pct):
         return min(
             max(atr_pct * ENTRY_PULLBACK_ATR_RATIO, MIN_ENTRY_PULLBACK_PCT),
             MAX_ENTRY_PULLBACK_PCT,
         )
+
+    def resolve_entry_signal(self, result):
+        raw_signal = "hold"
+        if result["long_timing"]:
+            raw_signal = "long"
+        elif result["short_timing"]:
+            raw_signal = "short"
+
+        if result["spike_detected"]:
+            self.retained_entry_signal = None
+            self.current_status["retained_entry_signal"] = None
+            return "hold"
+
+        turn_strength_ok = (
+            result["indicators"]["ma7_turn_atr_ratio"]
+            >= MIN_ENTRY_MA7_TURN_ATR_RATIO
+        )
+        if raw_signal in {"long", "short"} and turn_strength_ok:
+            if (
+                self.pending_entry
+                and self.pending_entry.get("side") != raw_signal
+            ):
+                self.clear_pending_entry("出現反方向 MA7 轉彎")
+            self.retained_entry_signal = {
+                "side": raw_signal,
+                "signal_candle": result["candle_time"],
+                "remaining_candles": ENTRY_SIGNAL_HOLD_CANDLES,
+                "signal_low": float(result["signal_low"]),
+                "signal_high": float(result["signal_high"]),
+            }
+            print(
+                f"保留 {raw_signal.upper()} 轉彎訊號 "
+                f"{ENTRY_SIGNAL_HOLD_CANDLES} 根 K 線"
+            )
+
+        retained = self.retained_entry_signal
+        if not retained:
+            return "hold"
+
+        retained["signal_low"] = min(
+            float(retained["signal_low"]), float(result["signal_low"])
+        )
+        retained["signal_high"] = max(
+            float(retained["signal_high"]), float(result["signal_high"])
+        )
+        side = retained.get("side")
+        direction_ok = (
+            result["ma7_rising"] if side == "long"
+            else result["ma7_falling"]
+        )
+        candle_ok = (
+            result["latest_green"] if side == "long"
+            else result["latest_red"]
+        )
+        eligible = (
+            side in {"long", "short"}
+            and not result["low_volatility"]
+            and direction_ok
+            and candle_ok
+        )
+        if eligible:
+            result["signal_low"] = retained["signal_low"]
+            result["signal_high"] = retained["signal_high"]
+            was_retained = (
+                retained.get("signal_candle") != result["candle_time"]
+            )
+            self.retained_entry_signal = None
+            self.current_status["retained_entry_signal"] = None
+            if was_retained:
+                print(f"沿用保留的 {side.upper()} 轉彎訊號")
+            return side
+
+        if retained.get("signal_candle") != result["candle_time"]:
+            retained["remaining_candles"] = (
+                int(retained.get("remaining_candles") or 0) - 1
+            )
+            if retained["remaining_candles"] <= 0:
+                print(f"保留的 {str(side).upper()} 轉彎訊號已到期")
+                self.retained_entry_signal = None
+                self.current_status["retained_entry_signal"] = None
+                return "hold"
+
+        self.current_status["retained_entry_signal"] = retained
+        return "hold"
 
     def clear_pending_entry(self, reason=None):
         pending = self.pending_entry
@@ -314,18 +390,12 @@ class TradingBot:
         target_price = float(pending.get("target_price") or 0)
         invalidation_price = float(pending.get("invalidation_price") or 0)
         pullback_pct = float(pending.get("pullback_pct") or 0)
-        profit_target = float(pending.get("profit_target") or 0)
         if position_side == "long":
             favorable_extreme = max(
                 float(pending.get("favorable_extreme") or 0), current_price
             )
             raw_target = favorable_extreme * (1 - pullback_pct / 100)
-            profit_space_limit = profit_target / (
-                1 + MIN_PROFIT_SPACE_PCT / 100
-            )
-            target_price = max(
-                target_price, min(raw_target, profit_space_limit)
-            )
+            target_price = max(target_price, raw_target)
             invalidated = current_price <= invalidation_price
             reached_target = current_price <= target_price
         elif position_side == "short":
@@ -334,12 +404,7 @@ class TradingBot:
             )
             favorable_extreme = min(stored_extreme, current_price)
             raw_target = favorable_extreme * (1 + pullback_pct / 100)
-            profit_space_limit = profit_target / (
-                1 - MIN_PROFIT_SPACE_PCT / 100
-            )
-            target_price = min(
-                target_price, max(raw_target, profit_space_limit)
-            )
+            target_price = min(target_price, raw_target)
             invalidated = current_price >= invalidation_price
             reached_target = current_price >= target_price
         else:
@@ -348,9 +413,6 @@ class TradingBot:
 
         pending["favorable_extreme"] = favorable_extreme
         pending["target_price"] = target_price
-        pending["profit_space_pct"] = self.profit_space_pct(
-            position_side, target_price, profit_target
-        )
         self.current_status["pending_entry"] = pending
 
         if invalidated:
@@ -360,16 +422,6 @@ class TradingBot:
             )
             return None
         if not reached_target:
-            return None
-
-        profit_space = self.profit_space_pct(
-            position_side, current_price, profit_target
-        )
-        if not self.has_minimum_profit_space(profit_space):
-            self.clear_pending_entry(
-                f"剩餘利潤空間 {profit_space:.3f}% 小於 "
-                f"{MIN_PROFIT_SPACE_PCT:.3f}%"
-            )
             return None
 
         reference_price = float(pending.get("signal_close") or 0)
@@ -396,7 +448,7 @@ class TradingBot:
         self.position_entry_modes[position_side] = "strategy"
         print(
             f"待進場成交 {position_side.upper()}：mark={current_price:.2f}, "
-            f"target={target_price:.2f}, space={profit_space:.3f}%"
+            f"target={target_price:.2f}"
         )
         self.pending_entry = None
         self.current_status["pending_entry"] = None
@@ -425,22 +477,10 @@ class TradingBot:
         pullback_pct = self.entry_pullback_pct(atr_pct)
         if signal == "long":
             target_price = signal_close * (1 - pullback_pct / 100)
-            profit_target = float(result["recent_high"])
             invalidation_price = float(result["signal_low"])
         else:
             target_price = signal_close * (1 + pullback_pct / 100)
-            profit_target = float(result["recent_low"])
             invalidation_price = float(result["signal_high"])
-
-        profit_space = self.profit_space_pct(
-            signal, target_price, profit_target
-        )
-        if not self.has_minimum_profit_space(profit_space):
-            print(
-                f"略過 {signal.upper()}：預估利潤空間 "
-                f"{profit_space:.3f}% 小於 {MIN_PROFIT_SPACE_PCT:.3f}%"
-            )
-            return None
 
         now = datetime.now(timezone.utc)
         self.pending_entry = {
@@ -455,15 +495,13 @@ class TradingBot:
             "signal_high": float(result["signal_high"]),
             "target_price": target_price,
             "invalidation_price": invalidation_price,
-            "profit_target": profit_target,
-            "profit_space_pct": profit_space,
             "pullback_pct": pullback_pct,
             "favorable_extreme": signal_close,
         }
         self.current_status["pending_entry"] = self.pending_entry
         print(
             f"建立待進場 {signal.upper()}：target={target_price:.2f}, "
-            f"pullback={pullback_pct:.3f}%, space={profit_space:.3f}%, "
+            f"pullback={pullback_pct:.3f}%, "
             f"valid={PENDING_ENTRY_MINUTES}m"
         )
         return self.pending_entry
@@ -492,9 +530,6 @@ class TradingBot:
         # Shift keeps the evaluated candle out of its own ATR baseline.
         closed["atr14"] = true_range.shift(1).rolling(14).mean()
         latest = closed.iloc[-1]
-        profit_window = closed.tail(PROFIT_LOOKBACK_CANDLES)
-        recent_high = float(profit_window["high"].max())
-        recent_low = float(profit_window["low"].min())
         previous = closed.iloc[-2]
         before_previous = closed.iloc[-3]
 
@@ -506,6 +541,8 @@ class TradingBot:
             float(before_previous["ma7"]) < float(previous["ma7"])
             and float(latest["ma7"]) < float(previous["ma7"])
         )
+        ma7_rising = float(latest["ma7"]) > float(previous["ma7"])
+        ma7_falling = float(latest["ma7"]) < float(previous["ma7"])
         ma25_rising = float(latest["ma25"]) > float(previous["ma25"])
         ma99_rising = float(latest["ma99"]) > float(previous["ma99"])
         ma25_falling = float(latest["ma25"]) < float(previous["ma25"])
@@ -562,6 +599,8 @@ class TradingBot:
             "low_volatility": low_volatility,
             "ma7_turns_up": ma7_turns_up,
             "ma7_turns_down": ma7_turns_down,
+            "ma7_rising": ma7_rising,
+            "ma7_falling": ma7_falling,
             "ma25_rising": ma25_rising,
             "ma99_rising": ma99_rising,
             "ma25_falling": ma25_falling,
@@ -575,8 +614,6 @@ class TradingBot:
             "candle_time": candle_time,
             "signal_low": float(latest["low"]),
             "signal_high": float(latest["high"]),
-            "recent_high": recent_high,
-            "recent_low": recent_low,
             "indicators": {
                 "ma7": float(latest["ma7"]),
                 "ma25": float(latest["ma25"]),
@@ -630,7 +667,8 @@ class TradingBot:
             long_quantity = self.position_quantity(positions["long"])
             short_quantity = self.position_quantity(positions["short"])
             candle_time = result["candle_time"]
-            signal = result["signal"]
+            signal = self.resolve_entry_signal(result)
+            self.current_status["signal"] = signal
             if result["spike_detected"]:
                 self.clear_pending_entry("偵測到異常 K 線")
                 print(
@@ -747,6 +785,8 @@ class TradingBot:
                 return False
 
             self.clear_pending_entry("改用手動開倉")
+            self.retained_entry_signal = None
+            self.current_status["retained_entry_signal"] = None
             reference_price = self.executor.get_mark_price(TRADING_SYMBOL)
             amount = self.executor.calculate_amount(
                 TRADING_SYMBOL,

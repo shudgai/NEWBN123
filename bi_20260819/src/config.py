@@ -27,7 +27,25 @@ MIN_ENTRY_MA7_TURN_ATR_RATIO = float(
 MIN_EXIT_MA7_TURN_ATR_RATIO = float(
     os.getenv("MIN_EXIT_MA7_TURN_ATR_RATIO", "0.25")
 )
+MA7_EXIT_CONFIRM_CANDLES = int(
+    os.getenv("MA7_EXIT_CONFIRM_CANDLES", "2")
+)
 STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.50"))
+TRAILING_TP_ACTIVATION_PCT = float(
+    os.getenv("TRAILING_TP_ACTIVATION_PCT", "0.30")
+)
+TRAILING_TP_DISTANCE_PCT = float(
+    os.getenv("TRAILING_TP_DISTANCE_PCT", "0.25")
+)
+TRAILING_TP_MIN_LOCK_PCT = float(
+    os.getenv("TRAILING_TP_MIN_LOCK_PCT", "0.15")
+)
+TRAILING_TP_CONFIRM_SECONDS = int(
+    os.getenv("TRAILING_TP_CONFIRM_SECONDS", "60")
+)
+TRAILING_TP_EMERGENCY_DISTANCE_PCT = float(
+    os.getenv("TRAILING_TP_EMERGENCY_DISTANCE_PCT", "0.50")
+)
 ENTRY_PULLBACK_ATR_RATIO = float(
     os.getenv("ENTRY_PULLBACK_ATR_RATIO", "0.75")
 )
@@ -56,8 +74,28 @@ if (
     or MIN_EXIT_MA7_TURN_ATR_RATIO <= 0
 ):
     raise RuntimeError("Minimum volatility thresholds must be positive.")
+if MA7_EXIT_CONFIRM_CANDLES < 1:
+    raise RuntimeError("MA7_EXIT_CONFIRM_CANDLES must be at least 1.")
 if not 0 < STOP_LOSS_PCT < 100:
     raise RuntimeError("STOP_LOSS_PCT must be greater than 0 and less than 100.")
+if not 0 < TRAILING_TP_ACTIVATION_PCT < 100:
+    raise RuntimeError(
+        "TRAILING_TP_ACTIVATION_PCT must be greater than 0 and less than 100."
+    )
+if not 0 < TRAILING_TP_DISTANCE_PCT < 100:
+    raise RuntimeError(
+        "TRAILING_TP_DISTANCE_PCT must be greater than 0 and less than 100."
+    )
+if not 0 < TRAILING_TP_MIN_LOCK_PCT < TRAILING_TP_ACTIVATION_PCT:
+    raise RuntimeError(
+        "TRAILING_TP_MIN_LOCK_PCT must be positive and less than the activation threshold."
+    )
+if TRAILING_TP_CONFIRM_SECONDS < 1:
+    raise RuntimeError("TRAILING_TP_CONFIRM_SECONDS must be at least 1.")
+if TRAILING_TP_EMERGENCY_DISTANCE_PCT <= TRAILING_TP_DISTANCE_PCT:
+    raise RuntimeError(
+        "TRAILING_TP_EMERGENCY_DISTANCE_PCT must exceed the normal trailing distance."
+    )
 if ENTRY_PULLBACK_ATR_RATIO <= 0:
     raise RuntimeError("ENTRY_PULLBACK_ATR_RATIO must be greater than 0.")
 if not 0 < MIN_ENTRY_PULLBACK_PCT <= MAX_ENTRY_PULLBACK_PCT < 100:

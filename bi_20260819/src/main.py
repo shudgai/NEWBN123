@@ -12,6 +12,7 @@ from src.config import (
     ENTRY_PULLBACK_ATR_RATIO,
     ENTRY_SIGNAL_HOLD_CANDLES,
     LOOP_INTERVAL_SECONDS,
+    MA7_EXIT_CONFIRM_CANDLES,
     MAX_CANDLE_RANGE_ATR,
     MAX_CLOSE_MOVE_ATR,
     MAX_ENTRY_PULLBACK_PCT,
@@ -26,6 +27,11 @@ from src.config import (
     STATUS_FILE,
     STOP_LOSS_PCT,
     TARGET_PERCENTAGE,
+    TRAILING_TP_ACTIVATION_PCT,
+    TRAILING_TP_CONFIRM_SECONDS,
+    TRAILING_TP_DISTANCE_PCT,
+    TRAILING_TP_EMERGENCY_DISTANCE_PCT,
+    TRAILING_TP_MIN_LOCK_PCT,
     TRADING_SYMBOL,
 )
 from src.data_handler import DataHandler
@@ -61,10 +67,20 @@ class TradingBot:
             "long": stored_extremes.get("long"),
             "short": stored_extremes.get("short"),
         }
+        stored_confirmations = saved_status.get("ma7_exit_confirmations") or {}
+        self.ma7_exit_confirmations = {
+            "long": int(stored_confirmations.get("long") or 0),
+            "short": int(stored_confirmations.get("short") or 0),
+        }
         stored_entry_modes = saved_status.get("position_entry_modes") or {}
         self.position_entry_modes = {
             "long": stored_entry_modes.get("long"),
             "short": stored_entry_modes.get("short"),
+        }
+        stored_trailing = saved_status.get("trailing_take_profit") or {}
+        self.trailing_take_profit = {
+            "long": stored_trailing.get("long"),
+            "short": stored_trailing.get("short"),
         }
         stored_pending = saved_status.get("pending_entry")
         self.pending_entry = (
@@ -84,7 +100,16 @@ class TradingBot:
             "signal_timeframe": SIGNAL_TIMEFRAME,
             "entry_ma7_turn_atr_ratio": MIN_ENTRY_MA7_TURN_ATR_RATIO,
             "exit_ma7_turn_atr_ratio": MIN_EXIT_MA7_TURN_ATR_RATIO,
+            "ma7_exit_confirm_candles": MA7_EXIT_CONFIRM_CANDLES,
             "stop_loss_pct": STOP_LOSS_PCT,
+            "trailing_tp_activation_pct": TRAILING_TP_ACTIVATION_PCT,
+            "trailing_tp_confirm_seconds": TRAILING_TP_CONFIRM_SECONDS,
+            "trailing_tp_distance_pct": TRAILING_TP_DISTANCE_PCT,
+            "trailing_tp_emergency_distance_pct": (
+                TRAILING_TP_EMERGENCY_DISTANCE_PCT
+            ),
+            "trailing_tp_min_lock_pct": TRAILING_TP_MIN_LOCK_PCT,
+            "trailing_take_profit": dict(self.trailing_take_profit),
             "entry_pullback_atr_ratio": ENTRY_PULLBACK_ATR_RATIO,
             "entry_pullback_pct_range": [
                 MIN_ENTRY_PULLBACK_PCT,
@@ -95,6 +120,7 @@ class TradingBot:
             "pending_entry": self.pending_entry,
             "retained_entry_signal": self.retained_entry_signal,
             "ma7_exit_extremes": dict(self.ma7_exit_extremes),
+            "ma7_exit_confirmations": dict(self.ma7_exit_confirmations),
             "position_entry_modes": dict(self.position_entry_modes),
             "ma7_exit_ratios": {"long": 0.0, "short": 0.0},
             "positions": self.executor.position_summaries(TRADING_SYMBOL),
@@ -133,8 +159,14 @@ class TradingBot:
             self.current_status["ma7_exit_extremes"] = dict(
                 self.ma7_exit_extremes
             )
+            self.current_status["ma7_exit_confirmations"] = dict(
+                self.ma7_exit_confirmations
+            )
             self.current_status["position_entry_modes"] = dict(
                 self.position_entry_modes
+            )
+            self.current_status["trailing_take_profit"] = dict(
+                self.trailing_take_profit
             )
             self.current_status["pending_entry"] = self.pending_entry
             self.current_status["retained_entry_signal"] = (
@@ -207,6 +239,118 @@ class TradingBot:
         return stopped_sides
 
     @staticmethod
+    def favorable_move_pct(position_side, entry_price, mark_price):
+        if entry_price <= 0 or mark_price <= 0:
+            return 0.0
+        direction = 1 if position_side == "long" else -1
+        return (mark_price - entry_price) / entry_price * 100 * direction
+
+    def enforce_trailing_take_profit(self, current_price, now=None):
+        now = now or datetime.now(timezone.utc)
+        closed_sides = set()
+        positions = self.executor.get_positions(TRADING_SYMBOL)
+        for position_side in ("long", "short"):
+            position = positions.get(position_side)
+            if self.position_quantity(position) <= 0:
+                self.trailing_take_profit[position_side] = None
+                continue
+
+            entry_mode = self.position_entry_modes.get(position_side)
+            if entry_mode not in {"manual", "strategy"}:
+                entry_mode = "strategy"
+                self.position_entry_modes[position_side] = entry_mode
+            if entry_mode == "manual":
+                self.trailing_take_profit[position_side] = None
+                continue
+
+            entry_price = float(position.get("entryPrice") or 0)
+            mark_price = float(position.get("markPrice") or current_price or 0)
+            current_profit_pct = self.favorable_move_pct(
+                position_side, entry_price, mark_price
+            )
+            state = self.trailing_take_profit.get(position_side)
+            if not isinstance(state, dict):
+                state = {"armed": False, "peak_profit_pct": 0.0}
+
+            peak_profit_pct = max(
+                float(state.get("peak_profit_pct") or 0),
+                current_profit_pct,
+            )
+            armed = bool(state.get("armed")) or (
+                peak_profit_pct >= TRAILING_TP_ACTIVATION_PCT
+            )
+            stop_profit_pct = (
+                max(
+                    TRAILING_TP_MIN_LOCK_PCT,
+                    peak_profit_pct - TRAILING_TP_DISTANCE_PCT,
+                )
+                if armed
+                else None
+            )
+            breach_started_at = state.get("breach_started_at")
+            if not armed or current_profit_pct > stop_profit_pct:
+                breach_started_at = None
+            elif not breach_started_at:
+                breach_started_at = now.isoformat()
+
+            breach_seconds = 0.0
+            if breach_started_at:
+                try:
+                    breach_time = datetime.fromisoformat(breach_started_at)
+                    breach_seconds = max((now - breach_time).total_seconds(), 0.0)
+                except (TypeError, ValueError):
+                    breach_started_at = now.isoformat()
+
+            drawdown_pct = peak_profit_pct - current_profit_pct
+            emergency = (
+                armed
+                and drawdown_pct >= TRAILING_TP_EMERGENCY_DISTANCE_PCT
+            )
+            confirmed = (
+                armed
+                and breach_started_at is not None
+                and breach_seconds >= TRAILING_TP_CONFIRM_SECONDS
+            )
+            self.trailing_take_profit[position_side] = {
+                "armed": armed,
+                "peak_profit_pct": peak_profit_pct,
+                "current_profit_pct": current_profit_pct,
+                "stop_profit_pct": stop_profit_pct,
+                "breach_started_at": breach_started_at,
+                "breach_seconds": breach_seconds,
+            }
+
+            if not emergency and not confirmed:
+                continue
+
+            print(
+                f"移動停利觸發：{position_side.upper()} "
+                f"最高獲利 {peak_profit_pct:.3f}%，"
+                f"目前 {current_profit_pct:.3f}%（回撤距離 "
+                f"{TRAILING_TP_DISTANCE_PCT:.3f}%，"
+                f"確認 {breach_seconds:.0f} 秒）。"
+            )
+            trade = self.executor.close_position(
+                TRADING_SYMBOL,
+                position_side,
+                exit_reason="trailing_tp",
+            )
+            if trade is not None:
+                self.reset_ma7_exit_tracking(position_side)
+                closed_sides.add(position_side)
+
+        self.current_status["trailing_take_profit"] = dict(
+            self.trailing_take_profit
+        )
+        return closed_sides
+
+    @staticmethod
+    def next_ma7_exit_confirmation(current_count, candidate, adverse_candle):
+        if candidate and adverse_candle:
+            return int(current_count) + 1
+        return 0
+
+    @staticmethod
     def cumulative_ma7_reversal_ratio(
         position_side, extreme_ma7, current_ma7, atr14
     ):
@@ -224,6 +368,7 @@ class TradingBot:
             position = positions.get(position_side)
             if self.position_quantity(position) <= 0:
                 self.ma7_exit_extremes[position_side] = None
+                self.ma7_exit_confirmations[position_side] = 0
                 self.position_entry_modes[position_side] = None
                 continue
 
@@ -233,6 +378,7 @@ class TradingBot:
                 self.position_entry_modes[position_side] = entry_mode
             if entry_mode == "manual":
                 self.ma7_exit_extremes[position_side] = None
+                self.ma7_exit_confirmations[position_side] = 0
                 continue
 
             extreme = self.ma7_exit_extremes.get(position_side)
@@ -255,6 +401,8 @@ class TradingBot:
 
     def reset_ma7_exit_tracking(self, position_side):
         self.ma7_exit_extremes[position_side] = None
+        self.ma7_exit_confirmations[position_side] = 0
+        self.trailing_take_profit[position_side] = None
         self.position_entry_modes[position_side] = None
         ratios = self.current_status.setdefault(
             "ma7_exit_ratios", {"long": 0.0, "short": 0.0}
@@ -631,11 +779,18 @@ class TradingBot:
             current_price = self.executor.get_mark_price(TRADING_SYMBOL)
             self.current_status["current_price"] = current_price
             stop_closed_sides = self.enforce_fixed_stop_loss(current_price)
+            trailing_closed_sides = self.enforce_trailing_take_profit(
+                current_price
+            )
             positions = self.executor.get_positions(TRADING_SYMBOL)
             pending_trade = self.process_pending_entry(
                 current_price, positions=positions
             )
-            if stop_closed_sides or pending_trade is not None:
+            if (
+                stop_closed_sides
+                or trailing_closed_sides
+                or pending_trade is not None
+            ):
                 self.refresh_status()
 
         df = self.data_handler.fetch_ohlcv(
@@ -660,7 +815,7 @@ class TradingBot:
                 self.refresh_status()
                 return
 
-            closed_sides = set(stop_closed_sides)
+            closed_sides = set(stop_closed_sides | trailing_closed_sides)
 
             positions = self.executor.get_positions(TRADING_SYMBOL)
             long_quantity = self.position_quantity(positions["long"])
@@ -691,15 +846,44 @@ class TradingBot:
             exit_atr_ok = (
                 result["indicators"]["atr_pct"] >= MIN_ENTRY_ATR_PCT
             )
+            exit_candidates = {
+                "long": (
+                    long_quantity > 0
+                    and exit_atr_ok
+                    and exit_ratios["long"]
+                    >= MIN_EXIT_MA7_TURN_ATR_RATIO
+                ),
+                "short": (
+                    short_quantity > 0
+                    and exit_atr_ok
+                    and exit_ratios["short"]
+                    >= MIN_EXIT_MA7_TURN_ATR_RATIO
+                ),
+            }
+            adverse_candles = {
+                "long": result["latest_red"],
+                "short": result["latest_green"],
+            }
+            for position_side in ("long", "short"):
+                self.ma7_exit_confirmations[position_side] = (
+                    self.next_ma7_exit_confirmation(
+                        self.ma7_exit_confirmations[position_side],
+                        exit_candidates[position_side],
+                        adverse_candles[position_side],
+                    )
+                )
+            self.current_status["ma7_exit_confirmations"] = dict(
+                self.ma7_exit_confirmations
+            )
             close_long = (
-                long_quantity > 0
-                and exit_atr_ok
-                and exit_ratios["long"] >= MIN_EXIT_MA7_TURN_ATR_RATIO
+                exit_candidates["long"]
+                and self.ma7_exit_confirmations["long"]
+                >= MA7_EXIT_CONFIRM_CANDLES
             )
             close_short = (
-                short_quantity > 0
-                and exit_atr_ok
-                and exit_ratios["short"] >= MIN_EXIT_MA7_TURN_ATR_RATIO
+                exit_candidates["short"]
+                and self.ma7_exit_confirmations["short"]
+                >= MA7_EXIT_CONFIRM_CANDLES
             )
 
             for position_side, quantity in (
@@ -715,6 +899,13 @@ class TradingBot:
                         f"{ratio:.3f}（平倉門檻 "
                         f"{MIN_EXIT_MA7_TURN_ATR_RATIO:.3f}），繼續持倉。"
                     )
+                    confirmations = self.ma7_exit_confirmations[position_side]
+                    if confirmations > 0:
+                        print(
+                            f"{position_side.upper()} MA7 平倉確認 "
+                            f"{confirmations}/{MA7_EXIT_CONFIRM_CANDLES}，"
+                            "等待下一根同方向反轉 K 線。"
+                        )
 
             if close_long:
                 print(
@@ -802,6 +993,7 @@ class TradingBot:
             if trade is not None:
                 self.position_entry_modes[position_side] = "manual"
                 self.ma7_exit_extremes[position_side] = None
+                self.trailing_take_profit[position_side] = None
             self.refresh_status()
             return trade is not None
 

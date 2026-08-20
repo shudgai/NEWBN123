@@ -24,7 +24,7 @@ MIN_ENTRY_ATR_PCT = float(os.getenv("MIN_ENTRY_ATR_PCT", "0.05"))
 MIN_ENTRY_MA7_TURN_ATR_RATIO = float(
     os.getenv("MIN_ENTRY_MA7_TURN_ATR_RATIO", "0.15")
 )
-MIN_ENTRY_RVOL = float(os.getenv("MIN_ENTRY_RVOL", "0.80"))
+MIN_ENTRY_RVOL = float(os.getenv("MIN_ENTRY_RVOL", "0.50"))
 RVOL_LOOKBACK = int(os.getenv("RVOL_LOOKBACK", "20"))
 MIN_EXIT_MA7_TURN_ATR_RATIO = float(
     os.getenv("MIN_EXIT_MA7_TURN_ATR_RATIO", "0.25")

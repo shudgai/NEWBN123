@@ -19,6 +19,7 @@ from src.main import TradingBot, save_status
 
 app = Flask(__name__)
 CONTROL_TOKEN = secrets.token_urlsafe(32)
+AUTO_RESTART_DELAY_SECONDS = 5
 
 
 def empty_position(side):
@@ -86,10 +87,17 @@ class BotManager:
         return self.status()
 
     def _run(self):
-        try:
-            self.bot.run(self.stop_event)
-        except Exception as exc:
-            self.bot.set_error(exc)
+        while self.stop_event and not self.stop_event.is_set():
+            try:
+                self.bot.run(self.stop_event)
+            except Exception as exc:
+                self.bot.set_error(exc)
+                print(
+                    "交易迴圈異常中斷，"
+                    f"{AUTO_RESTART_DELAY_SECONDS} 秒後自動重啟：{exc}"
+                )
+                if self.stop_event.wait(AUTO_RESTART_DELAY_SECONDS):
+                    break
 
     def stop(self):
         with self.lock:
@@ -271,4 +279,5 @@ def api_open_position():
 
 
 if __name__ == "__main__":
+    manager.start()
     app.run(host="0.0.0.0", port=8005, debug=False, threaded=True)

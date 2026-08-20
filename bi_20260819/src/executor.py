@@ -366,7 +366,6 @@ class Executor:
         symbol,
         side,
         amount,
-        order_type="market",
         position_side=None,
         reduce_only=False,
         reference_price=None,
@@ -451,7 +450,7 @@ class Executor:
             params["reduceOnly"] = True
         return self.exchange.create_order(
             symbol=symbol,
-            type=order_type,
+            type="market",
             side=side,
             amount=amount,
             params=params,

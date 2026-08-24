@@ -424,7 +424,11 @@
                     if (typeof valA === 'number' && typeof valB === 'number') {
                         cmp = valA - valB;
                     } else {
-                        cmp = valA.toString().localeCompare(valB.toString(), undefined, { numeric: true, sensitivity: 'base' });
+                        if (column === 'client_name' || column === 'location') {
+                            cmp = valA.toString().localeCompare(valB.toString(), 'zh-TW', { collation: 'stroke' });
+                        } else {
+                            cmp = valA.toString().localeCompare(valB.toString(), undefined, { numeric: true, sensitivity: 'base' });
+                        }
                     }
 
                     if (cmp !== 0) {
@@ -1511,7 +1515,7 @@
                 tableData.value.forEach(row => {
                     if (row.client_name) names.add(row.client_name);
                 });
-                return Array.from(names).sort();
+                return Array.from(names).sort((a, b) => a.localeCompare(b, 'zh-TW', { collation: 'stroke' }));
             });
 
             const uniqueLocations = computed(() => {
@@ -1519,7 +1523,7 @@
                 tableData.value.forEach(row => {
                     if (row.location) locs.add(row.location);
                 });
-                return Array.from(locs).sort();
+                return Array.from(locs).sort((a, b) => a.localeCompare(b, 'zh-TW', { collation: 'stroke' }));
             });
 
             

@@ -16,10 +16,14 @@ use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\Api\TripController;
 use App\Http\Controllers\Api\WaybillController;
+use App\Http\Controllers\Api\SavedClientController;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+Route::get('/saved-clients', [SavedClientController::class, 'index']);
+Route::post('/saved-clients', [SavedClientController::class, 'store']);
 
 Route::get('/trips', [TripController::class, 'index']);
 Route::post('/trips', [TripController::class, 'store']);

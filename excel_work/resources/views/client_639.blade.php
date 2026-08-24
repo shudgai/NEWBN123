@@ -324,6 +324,7 @@
         setup() {
             const fontSize = ref(14);
             const tableData = ref([]);
+            const dbSavedClients = ref([]);
             
             const getCellStyle = (row, colIndex) => {
                 if (!row || !row.styles || !row.styles[colIndex]) return {};
@@ -361,6 +362,7 @@
                 sortState.value = { column: null, order: 'asc' };
                 selectedRows.value = [];
                 await fetchData();
+                fetchSavedClients();
                 
                 toastMessage.value = `介面已恢復`;
                 showToast.value = true;
@@ -1469,6 +1471,7 @@
                 
                 undoData = null;
                 await fetchData();
+                fetchSavedClients();
             };
 
             const selectedRows = ref([]);
@@ -1508,6 +1511,7 @@
                     
                     selectedRows.value = [];
                     await fetchData();
+                fetchSavedClients();
                     
                     toastMessage.value = `已刪除 ${undoData.deletedRows.length} 筆資料`;
                     showToast.value = true;
@@ -1527,6 +1531,7 @@
                     });
                     if (response.ok) {
                         await fetchData();
+                fetchSavedClients();
                     }
                 } catch (error) {
                     console.error("Error deleting data:", error);
@@ -1565,7 +1570,7 @@
             });
 
             const uniqueClientNames = computed(() => {
-                const names = new Set();
+                const names = new Set(dbSavedClients.value);
                 tableData.value.forEach(row => {
                     if (row.client_name) names.add(row.client_name);
                 });
@@ -1580,6 +1585,34 @@
                 return Array.from(locs).sort();
             });
 
+            
+            const fetchSavedClients = async () => {
+                try {
+                    const response = await fetch(`/api/saved-clients?client_code=639`);
+                    if (response.ok) {
+                        dbSavedClients.value = await response.json();
+                    }
+                } catch (e) {
+                    console.error("Error fetching saved clients:", e);
+                }
+            };
+
+            const saveClientName = async (name) => {
+                if (!name || dbSavedClients.value.includes(name)) return;
+                try {
+                    const response = await fetch('/api/saved-clients', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ client_code: '639', client_name: name })
+                    });
+                    if (response.ok) {
+                        dbSavedClients.value.push(name);
+                    }
+                } catch (e) {
+                    console.error("Error saving client name:", e);
+                }
+            };
+
             const handleGlobalKeyDown = (e) => {
                 if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
                     if (undoData) {
@@ -1592,6 +1625,7 @@
 
             onMounted(() => {
                 fetchData();
+                fetchSavedClients();
                 initResizer();
                 window.addEventListener('keydown', handleGlobalKeyDown, true);
             });

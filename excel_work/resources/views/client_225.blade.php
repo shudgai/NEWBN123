@@ -560,7 +560,7 @@
                 let startIdx = idx;
                 while (startIdx > 0) {
                     const prev = tableData.value[startIdx - 1];
-                    if (prev.date === targetRow.date && prev.client_name === targetRow.client_name && prev.remark && (prev.remark.includes('同下批') || prev.remark.includes('及下批') || prev.remark.includes('一齊'))) {
+                    if (prev.date === targetRow.date && prev.remark && (prev.remark.includes('同下批') || prev.remark.includes('及下批') || prev.remark.includes('一齊'))) {
                         startIdx--;
                     } else {
                         break;
@@ -572,7 +572,7 @@
                     const curr = tableData.value[endIdx];
                     if (curr.remark && (curr.remark.includes('同下批') || curr.remark.includes('及下批') || curr.remark.includes('一齊'))) {
                         const next = tableData.value[endIdx + 1];
-                        if (next.date === targetRow.date && next.client_name === targetRow.client_name) {
+                        if (next.date === targetRow.date) {
                             endIdx++;
                         } else {
                             break;

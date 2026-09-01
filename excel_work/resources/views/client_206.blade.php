@@ -501,7 +501,8 @@
                 if (index === -1) return;
 
                 let nextIndex = null;
-                const cols = 8; // Number of input columns
+                const row = e.target.closest('tr');
+                const cols = row ? row.querySelectorAll('.nav-input').length : 8;
 
                 if (e.key === 'ArrowLeft') {
                     if (e.target.selectionStart === 0 && e.target.selectionEnd === 0) {
@@ -870,8 +871,14 @@
 
             const calculateFreight = (weight, remark, client) => {
                 let amt = _calculateFreight(weight, remark, client);
-                if (amt > 0 && remark && remark.includes('+尾門')) {
-                    amt += 500;
+                if (amt > 0 && remark) {
+                    if (remark.includes('+尾門')) {
+                        amt += 500;
+                    }
+                    const overtimeMatch = remark.match(/\+加班費\s*(\d+)/);
+                    if (overtimeMatch) {
+                        amt += parseInt(overtimeMatch[1], 10);
+                    }
                 }
                 return amt;
             };

@@ -492,7 +492,8 @@
                 if (index === -1) return;
 
                 let nextIndex = null;
-                const cols = 8; // Number of input columns
+                const row = e.target.closest('tr');
+                const cols = row ? row.querySelectorAll('.nav-input').length : 8;
 
                 if (e.key === 'ArrowLeft') {
                     if (e.target.selectionStart === 0 && e.target.selectionEnd === 0) {
@@ -856,8 +857,14 @@
 
             const calculateFreight = (weight, remark) => {
                 let amt = _calculateFreight(weight, remark);
-                if (amt > 0 && remark && remark.includes('+尾門')) {
-                    amt += 500;
+                if (amt > 0 && remark) {
+                    if (remark.includes('+尾門')) {
+                        amt += 500;
+                    }
+                    const overtimeMatch = remark.match(/\+加班費\s*(\d+)/);
+                    if (overtimeMatch) {
+                        amt += parseInt(overtimeMatch[1], 10);
+                    }
                 }
                 return amt;
             };
@@ -976,13 +983,23 @@
             const calculateForkliftFee = (weight, pieces) => {
                 weight = parseFloat(weight) || 0;
                 pieces = parseInt(pieces) || 0;
-                if (weight <= 0 && pieces <= 0) return 0;
+                if (weight <= 0) return 0;
+                if (pieces <= 0) pieces = 1; // 預設至少1箱
                 
-                if (weight >= 2000) return -1; // 另計 (we use >= 2000 just in case, wait, > 2000)
-                if (weight >= 1000) return 500;
-                if (pieces >= 4) return 500;
-                if (weight >= 100) return 250;
-                return 0;
+                const avgWeight = weight / pieces;
+                
+                if (avgWeight >= 2000) return -1; // 2000公斤以上不自動輸入
+                
+                const units = Math.ceil(pieces / 4); // 每4箱一單位
+                let feePerUnit = 0;
+                
+                if (avgWeight > 1000) {
+                    feePerUnit = 500; // 超過100公斤(250) + 超過1000公斤(250) = 500
+                } else if (avgWeight > 100) {
+                    feePerUnit = 250;
+                }
+                
+                return units * feePerUnit;
             };
 
             const previewFreight = (row) => {

@@ -369,6 +369,25 @@ class MergeExcelController extends Controller
                             }
                         }
 
+                        // Apply special rules based on remark (備註)
+                        $remarkVal = $rowDataForSorting['cells']['備註']['value'] ?? '';
+                        if (str_contains($remarkVal, '寄新竹物流')) {
+                            $rowDataForSorting['cells']['送貨地點'] = [
+                                'value' => '蘆竹',
+                                'is_fee' => false
+                            ];
+                        }
+                        if (str_contains($remarkVal, '寄加達')) {
+                            $rowDataForSorting['cells']['運費'] = [
+                                'value' => 120,
+                                'is_fee' => true
+                            ];
+                            if (!in_array('運費', $globalHeaders)) {
+                                $globalHeaders[] = '運費';
+                                $globalHeaderOriginal['運費'] = '運費';
+                            }
+                        }
+
                         // Apply special rule for 639: forklift fee is 0 if weight per piece <= 100
                         $is639 = str_contains($file->getClientOriginalName(), '639') || str_contains($rowDataForSorting['cells']['客戶名稱']['value'] ?? '', '639');
                         if ($is639) {
@@ -377,10 +396,18 @@ class MergeExcelController extends Controller
                             $piecesStr = $rowDataForSorting['cells']['件數']['value'] ?? '1';
                             $pieces = (int)str_replace(',', '', (string)$piecesStr);
                             if ($pieces <= 0) $pieces = 1;
-                            
-                            if (($weight / $pieces) <= 100) {
+                            $avgWeight = $weight / $pieces;
+                            if ($avgWeight < 2000) {
+                                $units = ceil($pieces / 4);
+                                $feePerUnit = 0;
+                                if ($avgWeight > 1000) {
+                                    $feePerUnit = 500;
+                                } else if ($avgWeight > 100) {
+                                    $feePerUnit = 250;
+                                }
+                                $forkliftFee = $units * $feePerUnit;
                                 if (isset($rowDataForSorting['cells']['堆高機'])) {
-                                    $rowDataForSorting['cells']['堆高機']['value'] = 0;
+                                    $rowDataForSorting['cells']['堆高機']['value'] = $forkliftFee;
                                 }
                             }
                         }

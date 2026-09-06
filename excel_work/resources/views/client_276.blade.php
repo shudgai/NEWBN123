@@ -859,13 +859,12 @@
                 if (r.match(/人力/)) return 1500;
 
                 // Vehicle check
-                let vehicle = null;
-                if (r.match(/3\.49噸/)) vehicle = '3.49';
-                else if (r.match(/6\.8噸/)) vehicle = '6.8';
-                else if (r.match(/8\.8噸/)) vehicle = '8.8';
-                else if (r.match(/10\.5噸/)) vehicle = '10.5';
-                else if (r.match(/15噸/)) vehicle = '15';
-                else if (r.match(/17噸/)) vehicle = '17';
+                let vehicles = [];
+                const vehicleRegex = /(3\.49|6\.8|8\.8|10\.5|15|17)噸/g;
+                let match;
+                while ((match = vehicleRegex.exec(r)) !== null) {
+                    vehicles.push(match[1]);
+                }
 
                 // Determine Region
                 // Region 1: Taipei city (Base)
@@ -901,7 +900,8 @@
                     region = 2; surcharge = 220;
                 }
 
-                if (vehicle) {
+                if (vehicles.length > 0) {
+                    const getVehiclePrice = (vehicle) => {
                     if (region === 1 || region === 3 || region === 4 || region === 2) {
                         // Region 1,2,3,4 cars
                         // We map them according to the rules. If not specific, we use Taipei standard
@@ -951,6 +951,15 @@
                     }
                     
                     return -1; // Specific vehicle not defined, leave empty
+                };
+
+                    let totalVehiclePrice = 0;
+                    for (let v of vehicles) {
+                        let p = getVehiclePrice(v);
+                        if (p === -1) return -1;
+                        totalVehiclePrice += p;
+                    }
+                    return totalVehiclePrice;
                 }
 
                 if (!weight) return 0;

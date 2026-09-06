@@ -668,8 +668,9 @@
                 }
                 
                 const clientName = group[0].client_name || '';
-                const is206 = clientName.includes('206');
-                const targetIndex = is206 ? maxWeightIndex : (tongXiaPiIndex !== -1 ? tongXiaPiIndex : maxWeightIndex);
+                // For client 206, freight should be displayed in the row with the max weight, especially for "共*批"
+                const hasGongPi = group.some(r => r.remark && r.remark.includes('共'));
+                const targetIndex = hasGongPi ? maxWeightIndex : (tongXiaPiIndex !== -1 ? tongXiaPiIndex : maxWeightIndex);
                 
                 const newAmount = calculateFreight(totalWeight, combinedText, clientName);
                 const finalAmount = newAmount > 0 ? newAmount : 0;
@@ -718,8 +719,9 @@
                 }
                 
                 const clientName = group[0].client_name || '';
-                const is206 = clientName.includes('206');
-                const targetIndex = is206 ? maxWeightIndex : (tongXiaPiIndex !== -1 ? tongXiaPiIndex : maxWeightIndex);
+                // For client 206, freight should be displayed in the row with the max weight, especially for "共*批"
+                const hasGongPi = group.some(r => r.remark && r.remark.includes('共'));
+                const targetIndex = hasGongPi ? maxWeightIndex : (tongXiaPiIndex !== -1 ? tongXiaPiIndex : maxWeightIndex);
                 
                 const newAmount = calculateFreight(totalWeight, combinedText, clientName);
                 const finalAmount = newAmount > 0 ? newAmount : (newAmount === -1 ? 0 : 0);
@@ -948,7 +950,8 @@
                 else if (r.match(/中壢|林口|龜山|桃園/)) { regionA = 4; }
                 else if (r.match(/新屋|八德|觀音|平鎮|楊梅/)) { regionA = 5; }
 
-                if (vehicle) {
+                if (vehicles.length > 0) {
+                    const getVehiclePrice = (vehicle) => {
                     const matrixA_FTL = {
                         1: { '3.49': 1680, '6.8': 2100, '8.8': 3150, '17': 4725 },
                         '2a': { '3.49': 1785, '6.8': 2310, '8.8': 3150, '17': 4725 },
@@ -974,6 +977,15 @@
                     const typeBPrice = matrixB_FTL[regionA]?.[vehicle];
                     const finalPrice = isTypeA ? typeAPrice : typeBPrice;
                     return finalPrice !== undefined ? finalPrice : -1;
+                };
+
+                    let totalVehiclePrice = 0;
+                    for (let v of vehicles) {
+                        let p = getVehiclePrice(v);
+                        if (p === -1) return -1;
+                        totalVehiclePrice += p;
+                    }
+                    return totalVehiclePrice;
                 }
 
                 if (!weight) return 0;

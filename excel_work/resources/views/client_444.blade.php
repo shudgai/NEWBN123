@@ -870,7 +870,8 @@
                 else if (r.match(/中壢|林口|龜山|桃園/)) { regionA = 4; }
                 else if (r.match(/新屋|八德|觀音|平鎮|楊梅/)) { regionA = 5; }
 
-                if (vehicle) {
+                if (vehicles.length > 0) {
+                    const getVehiclePrice = (vehicle) => {
                     const matrixA_FTL = {
                         1: { '3.49': 1680, '6.8': 2100, '8.8': 3150, '17': 4725 },
                         '2a': { '3.49': 1785, '6.8': 2310, '8.8': 3150, '17': 4725 },
@@ -884,6 +885,15 @@
                     };
                     const finalPrice = matrixA_FTL[regionA]?.[vehicle];
                     return finalPrice !== undefined ? finalPrice : -1;
+                };
+
+                    let totalVehiclePrice = 0;
+                    for (let v of vehicles) {
+                        let p = getVehiclePrice(v);
+                        if (p === -1) return -1;
+                        totalVehiclePrice += p;
+                    }
+                    return totalVehiclePrice;
                 }
 
                 if (!weight) return 0;

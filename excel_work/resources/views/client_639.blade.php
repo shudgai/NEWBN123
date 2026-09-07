@@ -872,12 +872,15 @@
             const _calculateFreight = (weight, remark) => {
                 const r = (remark || '').replace(/竹北/g, '新竹'); // 竹北以新竹計費
 
-                let vehicle = null;
-                if (r.match(/3\.49噸/)) vehicle = '3.49';
-                else if (r.match(/6\.8噸/)) vehicle = '6.8';
-                else if (r.match(/8\.8噸/)) vehicle = '8.8';
-                else if (r.match(/15噸/)) vehicle = '15';
-                else if (r.match(/17噸/)) vehicle = '17';
+                                let vehicles = [];
+                const vehicleRegex = /(3\.49|6\.8|8\.8|10\.5|15|17)噸(?:車)?\s*(?:[*xX]\s*(\d+))?/g;
+                let match;
+                while ((match = vehicleRegex.exec(r)) !== null) {
+                    let count = match[2] ? parseInt(match[2], 10) : 1;
+                    for (let i = 0; i < count; i++) {
+                        vehicles.push(match[1]);
+                    }
+                }
 
                 let regionA = 1;
                 if (r.match(/三重|五股|泰山|新莊|蘆洲|板橋|樹林|中和|永和/)) { regionA = '2a'; }

@@ -84,8 +84,10 @@ class MergeExcelController extends Controller
             $firstFileForceDate = false;
             
             $isFirstFile = true;
+            $fileIndex = 0; // 項次計數器，每個檔案加一
 
             foreach ($files as $file) {
+                $fileIndex++;
                 try {
                     $spreadsheet = IOFactory::load($file->getPathname());
                 } catch (\Exception $e) {
@@ -326,6 +328,7 @@ class MergeExcelController extends Controller
                         $rowDataForSorting = [
                             'sort_date' => $finalDateStr,
                             'original_index' => count($allCollectedRows),
+                            'file_index' => $fileIndex, // 第幾個檔案
                             'cells' => []
                         ];
 
@@ -598,10 +601,9 @@ class MergeExcelController extends Controller
 
             // --- Output rows ---
 
-            $seqNo = 1;
             foreach ($allCollectedRows as $rowData) {
-                // Write 項次 (sequence number) in column A
-                $activeSheet->getCell('A' . $currentRow)->setValue($seqNo);
+                // Write 項次 = 檔案編號（同一檔案的所有資料共用相同項次）
+                $activeSheet->getCell('A' . $currentRow)->setValue($rowData['file_index']);
                 $style = $activeSheet->getStyle('A' . $currentRow);
                 $style->getFont()->setName('微軟正黑體')->setSize(12);
 
@@ -628,7 +630,6 @@ class MergeExcelController extends Controller
                     $style = $activeSheet->getStyle($destColStr . $currentRow);
                     $style->getFont()->setName('微軟正黑體')->setSize(12);
                 }
-                $seqNo++;
                 $currentRow++;
             }
             

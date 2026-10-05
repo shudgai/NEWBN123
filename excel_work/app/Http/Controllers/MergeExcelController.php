@@ -494,18 +494,18 @@ class MergeExcelController extends Controller
             $currentRow = 1;
 
             $fixedColumns = [
-                '日期' => 'A',
-                '客戶名稱' => 'B',
-                '主併提單號碼' => 'C',
-                '主倂提單號碼' => 'C', // alias just in case
-                '送貨地點' => 'D',
-                '件數' => 'E',
-                '重量(kg)' => 'F',
-                '噸位' => 'G',
-                '卡車費' => 'H',
-                '堆高機' => 'I',
-                '拆板回收' => 'J',
-                '備註' => 'K'
+                '日期' => 'B',
+                '客戶名稱' => 'C',
+                '主併提單號碼' => 'D',
+                '主倂提單號碼' => 'D', // alias just in case
+                '送貨地點' => 'E',
+                '件數' => 'F',
+                '重量(kg)' => 'G',
+                '噸位' => 'H',
+                '卡車費' => 'I',
+                '堆高機' => 'J',
+                '拆板回收' => 'K',
+                '備註' => 'L'
             ];
             
             $globalHeaderToDestCol = [];
@@ -513,7 +513,7 @@ class MergeExcelController extends Controller
                 $globalHeaderToDestCol[$key] = $col;
             }
             
-            $nextExtraColIndex = 12; // L
+            $nextExtraColIndex = 13; // M (after 項次=A, fixed cols B..L)
             foreach ($globalHeaders as $cleanVal) {
                 if (!isset($globalHeaderToDestCol[$cleanVal])) {
                     $destColStr = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($nextExtraColIndex);
@@ -543,9 +543,9 @@ class MergeExcelController extends Controller
                     
                     if ($isHeaderRow) {
                         $defaultHeaders = [
-                            'A' => '日期', 'B' => '客戶名稱', 'C' => '主併提單號碼', 'D' => '送貨地點',
-                            'E' => '件數', 'F' => '重量(kg)', 'G' => '噸位', 'H' => '卡車費',
-                            'I' => '堆高機', 'J' => '拆板回收', 'K' => '備註'
+                            'A' => '項次', 'B' => '日期', 'C' => '客戶名稱', 'D' => '主併提單號碼', 'E' => '送貨地點',
+                            'F' => '件數', 'G' => '重量(kg)', 'H' => '噸位', 'I' => '卡車費',
+                            'J' => '堆高機', 'K' => '拆板回收', 'L' => '備註'
                         ];
                         foreach ($defaultHeaders as $col => $name) {
                             $activeSheet->getCell($col . $currentRow)->setValue($name);
@@ -575,9 +575,9 @@ class MergeExcelController extends Controller
                 }
             } else {
                 $defaultHeaders = [
-                    'A' => '日期', 'B' => '客戶名稱', 'C' => '主併提單號碼', 'D' => '送貨地點',
-                    'E' => '件數', 'F' => '重量(kg)', 'G' => '噸位', 'H' => '卡車費',
-                    'I' => '堆高機', 'J' => '拆板回收', 'K' => '備註'
+                    'A' => '項次', 'B' => '日期', 'C' => '客戶名稱', 'D' => '主併提單號碼', 'E' => '送貨地點',
+                    'F' => '件數', 'G' => '重量(kg)', 'H' => '噸位', 'I' => '卡車費',
+                    'J' => '堆高機', 'K' => '拆板回收', 'L' => '備註'
                 ];
                 foreach ($defaultHeaders as $col => $name) {
                     $activeSheet->getCell($col . $currentRow)->setValue($name);
@@ -587,7 +587,7 @@ class MergeExcelController extends Controller
                 foreach ($globalHeaders as $cleanVal) {
                     $destColStr = $globalHeaderToDestCol[$cleanVal];
                     $colIdx = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($destColStr);
-                    if ($colIdx >= 12) {
+                    if ($colIdx >= 13) {
                         $activeSheet->getCell($destColStr . $currentRow)->setValue($globalHeaderOriginal[$cleanVal] ?? $cleanVal);
                         $style = $activeSheet->getStyle($destColStr . $currentRow);
                         $style->getFont()->setName('微軟正黑體')->setSize(12)->setBold(true);
@@ -598,7 +598,13 @@ class MergeExcelController extends Controller
 
             // --- Output rows ---
 
+            $seqNo = 1;
             foreach ($allCollectedRows as $rowData) {
+                // Write 項次 (sequence number) in column A
+                $activeSheet->getCell('A' . $currentRow)->setValue($seqNo);
+                $style = $activeSheet->getStyle('A' . $currentRow);
+                $style->getFont()->setName('微軟正黑體')->setSize(12);
+
                 foreach ($rowData['cells'] as $cleanVal => $cellData) {
                     if (!isset($globalHeaderToDestCol[$cleanVal])) continue;
                     $destColStr = $globalHeaderToDestCol[$cleanVal];
@@ -622,6 +628,7 @@ class MergeExcelController extends Controller
                     $style = $activeSheet->getStyle($destColStr . $currentRow);
                     $style->getFont()->setName('微軟正黑體')->setSize(12);
                 }
+                $seqNo++;
                 $currentRow++;
             }
             
